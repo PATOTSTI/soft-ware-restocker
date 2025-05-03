@@ -98,12 +98,15 @@ macos/Runner.xcworkspace/
 macos/Runner.xcodeproj/project.xcworkspace/
 macos/Runner.xcodeproj/xcshareddata/
 macos/Runner.xcodeproj/xcuserdata/
+macos/Runner/*.entitlements
+macos/Runner/*.entitlements(1).xml
 
 # Windows specific
 windows/flutter/generated_plugin_registrant.cc
 windows/flutter/generated_plugin_registrant.h
 windows/flutter/generated_plugins.cmake
 windows/runner/runner.exe.manifest
+windows/runner/runner.exe.manifest(1).xml
 
 # Generated files
 *.g.dart
@@ -111,3 +114,10 @@ windows/runner/runner.exe.manifest
 *.mocks.dart
 *.config.dart
 *.gr.dart
+
+# Keep these files
+!android/app/src/main/kotlin/com/example/restockr/
+!android/app/src/main/res/values/string.xml
+!ios/Runner/Assets.xcassets/AppIcon.appiconset/
+!ios/Runner/Base.lproj/
+!lib/assets/
