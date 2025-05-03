@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding= "utf-8"?>
+<resources>
+    <string name="app_name">Restockr</string>
+    <string name="facebook_app_id">9425487814228438</string>
+    <string name="fb_login_protocol_scheme">9425487814228438</string>
+    <string name="facebook_client_token">c33521b48e0e1572e497bef3f73b736a</string>
+</resources>
