@@ -1,4 +1,4 @@
-# software_design
+# restockr
 
 A new Flutter project.
 

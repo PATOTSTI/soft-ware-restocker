@@ -1,6 +1,6 @@
 {
-    "name": "software_design",
-    "short_name": "software_design",
+    "name": "restockr",
+    "short_name": "restockr",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

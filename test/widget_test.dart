@@ -7,12 +7,19 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:restckr/main.dart';
+
+import 'package:restockr/main.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
+    // Build our app and trigger a frame.
     await tester.pumpWidget(const MyApp());
+
+    // Verify that the app title is displayed
     expect(find.text('ReStckr'), findsOneWidget);
-    expect(find.byType(MaterialApp), findsOneWidget);
+    
+    // Verify that the login form is displayed
+    expect(find.byType(TextFormField), findsNWidgets(2)); // Email and password fields
+    expect(find.text('LOGIN'), findsOneWidget);
   });
 }
