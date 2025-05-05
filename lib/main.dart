@@ -31,27 +31,11 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
-          }
-
-          if (snapshot.hasData) {
-            return const HomePage();
-          }
-
-          return const LoginPage();
-        },
-      ),
       routes: {
+        '/': (context) => const LoginPage(),
         '/signup': (context) => const SignUpPage(),
         '/forgot-password': (context) => const ForgotPasswordPage(),
+        '/home': (context) => const HomePage(),
       },
     );
   }
@@ -61,23 +45,10 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Add method to get current user
-  User? get currentUser => _auth.currentUser;
-
-  // Add method to check if user is logged in
-  bool get isLoggedIn => _auth.currentUser != null;
-
   Future<bool> signInWithEmailAndPassword(String email, String password) async {
     try {
-      // Set persistence to LOCAL before signing in
-      await _auth.setPersistence(Persistence.LOCAL);
-      
-      final userCredential = await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
-      
-      return userCredential.user != null;
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return true;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
         throw Exception('No user found for that email.');
@@ -93,23 +64,22 @@ class AuthService {
 
   Future<bool> signInWithGoogle() async {
     try {
-      // Set persistence to LOCAL before signing in
-      await _auth.setPersistence(Persistence.LOCAL);
-      
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
       );
 
       // Check if user is already signed in
-      final GoogleSignInAccount? currentUser = await googleSignIn.signInSilently();
+      final GoogleSignInAccount? currentUser =
+          await googleSignIn.signInSilently();
       if (currentUser != null) {
-        final GoogleSignInAuthentication googleAuth = await currentUser.authentication;
+        final GoogleSignInAuthentication googleAuth =
+            await currentUser.authentication;
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
-        final userCredential = await _auth.signInWithCredential(credential);
-        return userCredential.user != null;
+        await _auth.signInWithCredential(credential);
+        return true;
       }
 
       // If not signed in, start the sign-in flow
@@ -118,14 +88,15 @@ class AuthService {
         throw Exception('Google sign-in cancelled');
       }
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final userCredential = await _auth.signInWithCredential(credential);
-      return userCredential.user != null;
+      await _auth.signInWithCredential(credential);
+      return true;
     } on FirebaseAuthException catch (e) {
       throw Exception('Firebase authentication failed: ${e.message}');
     } catch (e) {
@@ -135,16 +106,14 @@ class AuthService {
 
   Future<bool> signInWithFacebook() async {
     try {
-      // Set persistence to LOCAL before signing in
-      await _auth.setPersistence(Persistence.LOCAL);
-      
       final LoginResult result = await FacebookAuth.instance.login(
         permissions: ['email', 'public_profile'],
       );
       if (result.status == LoginStatus.success) {
-        final OAuthCredential facebookAuthCredential = FacebookAuthProvider.credential(result.accessToken!.token);
-        final userCredential = await _auth.signInWithCredential(facebookAuthCredential);
-        return userCredential.user != null;
+        final OAuthCredential facebookAuthCredential =
+            FacebookAuthProvider.credential(result.accessToken!.token);
+        await _auth.signInWithCredential(facebookAuthCredential);
+        return true;
       } else {
         throw Exception('Facebook sign-in cancelled');
       }
@@ -227,19 +196,34 @@ class AuthService {
 
       // Delete user data from Firestore
       await _firestore.collection('users').doc(user.uid).delete();
-      
+
       // Delete user's cart data
-      await _firestore.collection('users').doc(user.uid).collection('cart').doc('cart_data').delete();
-      
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('cart')
+          .doc('cart_data')
+          .delete();
+
       // Delete user's stock data
-      await _firestore.collection('users').doc(user.uid).collection('stocks').doc('stock_data').delete();
-      
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data')
+          .delete();
+
       // Delete user's activity data
-      await _firestore.collection('users').doc(user.uid).collection('activity').doc('purchase_history').delete();
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('activity')
+          .doc('purchase_history')
+          .delete();
 
       // Delete the user account
       await user.delete();
-      
+
       return true;
     } catch (e) {
       throw Exception('Failed to delete account: ${e.toString()}');
@@ -273,8 +257,7 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (success && mounted) {
-          // Remove the navigation since StreamBuilder will handle it
-          // Navigator.pushReplacementNamed(context, '/home');
+          Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
         if (!mounted) return;
@@ -294,8 +277,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithGoogle();
       if (success && mounted) {
-        // Remove the navigation since StreamBuilder will handle it
-        // Navigator.pushReplacementNamed(context, '/home');
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -314,8 +296,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithFacebook();
       if (success && mounted) {
-        // Remove the navigation since StreamBuilder will handle it
-        // Navigator.pushReplacementNamed(context, '/home');
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -1153,35 +1134,39 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final List<PurchaseHistory> _purchaseHistory = [];
   final Map<String, List<CartItem>> _cartItems = {};
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadPurchaseHistory();
+    _loadStockDataToCartItems();
+    _loadCartFromFirestore();
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _saveCartToFirestore() async {
     try {
-      await Future.wait([
-        _loadPurchaseHistory(),
-        _loadStockDataToCartItems(),
-        _loadCartFromFirestore(),
-      ]);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('cart')
+          .doc('cart_data');
+      // Save as a flat list of items
+      final List<Map<String, dynamic>> cartList = [];
+      _cartItems.forEach((section, items) {
+        for (var item in items) {
+          cartList.add({
+            'section': section,
+            'name': item.name,
+            'quantity': item.quantity,
+            'price': item.price,
+          });
+        }
+      });
+      await docRef.set({'cart': cartList});
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      // Optionally show error
     }
   }
 
@@ -1189,13 +1174,11 @@ class _HomePageState extends State<HomePage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-
       final docRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('cart')
           .doc('cart_data');
-
       final doc = await docRef.get();
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
@@ -1221,99 +1204,13 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading cart: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      // Optionally show error
     }
   }
 
-  Future<void> _saveCartToFirestore() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-
-      // Convert cart items to a format suitable for Firestore
-      final List<Map<String, dynamic>> cartList = [];
-      _cartItems.forEach((section, items) {
-        for (var item in items) {
-          cartList.add({
-            'section': section,
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-          });
-        }
-      });
-
-      await docRef.set({'cart': cartList});
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving cart: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _clearCart() {
+  void _onItemTapped(int index) {
     setState(() {
-      _cartItems.clear();
-    });
-    _saveCartToFirestore();
-  }
-
-  void _handleQuantityChange(
-    String section,
-    String itemName,
-    int newQuantity,
-    double price,
-  ) {
-    setState(() {
-      if (!_cartItems.containsKey(section)) {
-        _cartItems[section] = [];
-      }
-
-      final cartSection = _cartItems[section]!;
-      final existingItemIndex = cartSection.indexWhere(
-        (item) => item.name == itemName,
-      );
-
-      if (existingItemIndex != -1) {
-        final item = cartSection[existingItemIndex];
-        item.quantity = newQuantity;
-        item.price = price;
-
-        if (newQuantity == 0) {
-          cartSection.removeAt(existingItemIndex);
-          if (cartSection.isEmpty) {
-            _cartItems.remove(section);
-          }
-        }
-      } else if (newQuantity > 0) {
-        cartSection.add(
-          CartItem(
-            name: itemName,
-            quantity: newQuantity,
-            price: price,
-            section: section,
-          ),
-        );
-      }
-      _saveCartToFirestore();
+      _selectedIndex = index;
     });
   }
 
@@ -1334,6 +1231,7 @@ class _HomePageState extends State<HomePage> {
       );
 
       if (existingItem.quantity == 0) {
+        // New item
         existingItem = CartItem(
           name: itemName,
           quantity: 1,
@@ -1342,10 +1240,11 @@ class _HomePageState extends State<HomePage> {
         );
         _cartItems[section]!.add(existingItem);
       } else {
+        // Existing item
         existingItem.quantity++;
       }
 
-      _saveCartToFirestore();
+      _saveCartToFirestore(); // Save cart after change
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1357,20 +1256,172 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
+  void _handleQuantityChange(
+    String section,
+    String itemName,
+    int newQuantity,
+    double price,
+  ) {
+    setState(() {
+      // Find or create the section
+      if (!_cartItems.containsKey(section)) {
+        _cartItems[section] = [];
+      }
+
+      // Find the item in cart items
+      final cartSection = _cartItems[section]!;
+      final existingItemIndex = cartSection.indexWhere(
+        (item) => item.name == itemName,
+      );
+
+      if (existingItemIndex != -1) {
+        // Update existing item
+        final item = cartSection[existingItemIndex];
+        item.quantity = newQuantity;
+        item.price = price;
+
+        // If quantity is 0, remove from cart
+        if (newQuantity == 0) {
+          cartSection.removeAt(existingItemIndex);
+          if (cartSection.isEmpty) {
+            _cartItems.remove(section);
+          }
+        }
+      } else if (newQuantity > 0) {
+        // Add new item
+        cartSection.add(
+          CartItem(
+            name: itemName,
+            quantity: newQuantity,
+            price: price,
+            section: section,
+          ),
+        );
+      }
+      _saveCartToFirestore(); // Save cart after change
+    });
+  }
+
+  void _confirmPurchase() {
+    if (_cartItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your cart is empty'),
+          backgroundColor: Colors.orange,
         ),
       );
+      return;
     }
 
+    // Create a map of all items and their quantities
+    Map<String, int> purchasedItems = {};
+    for (var section in _cartItems.entries) {
+      for (var item in section.value) {
+        purchasedItems[item.name] = item.quantity;
+      }
+    }
+
+    // Add to purchase history
+    final purchase = PurchaseHistory(
+      date: DateTime.now(),
+      amount: _calculateTotal(),
+      items: purchasedItems,
+    );
+
+    setState(() {
+      _purchaseHistory.add(purchase);
+      // Do NOT clear cart here
+    });
+
+    _savePurchaseHistory(); // Save to Firestore
+    // Do NOT clear cart in Firestore here
+
+    // Show confirmation dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Purchase Confirmed'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text('Items purchased:'),
+            const SizedBox(height: 4),
+            ...purchasedItems.entries.map(
+              (entry) => Text('• ${entry.key} (${entry.value}x)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSettingsDialog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => SettingsPage()),
+    );
+  }
+
+  double _calculateTotal() {
+    double total = 0;
+    for (var section in _cartItems.entries) {
+      for (var item in section.value) {
+        total += item.price * item.quantity;
+      }
+    }
+    return total;
+  }
+
+  String get _title {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Stocks';
+      case 1:
+        return 'Cart';
+      case 2:
+        return 'Activity';
+      case 3:
+        return 'Events';
+      default:
+        return '';
+    }
+  }
+
+  IconData get _titleIcon {
+    switch (_selectedIndex) {
+      case 0:
+        return Icons.inventory_2_outlined;
+      case 1:
+        return Icons.shopping_bag_outlined;
+      case 2:
+        return Icons.history;
+      case 3:
+        return Icons.calendar_today;
+      default:
+        return Icons.error;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [Icon(_getTitleIcon), const SizedBox(width: 8), Text(_getTitle)],
+          children: [Icon(_titleIcon), const SizedBox(width: 8), Text(_title)],
         ),
         actions: [
           const IconButton(icon: Icon(Icons.notifications), onPressed: null),
@@ -1419,124 +1470,6 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
-  }
-
-  void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-  }
-
-  void _showSettingsDialog() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => SettingsPage()),
-    );
-  }
-
-  String get _getTitle {
-    switch (_selectedIndex) {
-      case 0:
-        return 'Stocks';
-      case 1:
-        return 'Cart';
-      case 2:
-        return 'Activity';
-      case 3:
-        return 'Events';
-      default:
-        return '';
-    }
-  }
-
-  IconData get _getTitleIcon {
-    switch (_selectedIndex) {
-      case 0:
-        return Icons.inventory_2_outlined;
-      case 1:
-        return Icons.shopping_bag_outlined;
-      case 2:
-        return Icons.history;
-      case 3:
-        return Icons.calendar_today;
-      default:
-        return Icons.error;
-    }
-  }
-
-  void _confirmPurchase() {
-    if (_cartItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Your cart is empty'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // Create a map of all items and their quantities
-    Map<String, int> purchasedItems = {};
-    for (var section in _cartItems.entries) {
-      for (var item in section.value) {
-        purchasedItems[item.name] = item.quantity;
-      }
-    }
-
-    // Add to purchase history
-    final purchase = PurchaseHistory(
-      date: DateTime.now(),
-      amount: _calculateTotal(),
-      items: purchasedItems,
-    );
-
-    setState(() {
-      _purchaseHistory.add(purchase);
-    });
-
-    _savePurchaseHistory();
-
-    // Show confirmation dialog
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Purchase Confirmed'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text('Items purchased:'),
-            const SizedBox(height: 4),
-            ...purchasedItems.entries.map(
-              (entry) => Text('• ${entry.key} (${entry.value}x)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  double _calculateTotal() {
-    double total = 0;
-    for (var section in _cartItems.entries) {
-      for (var item in section.value) {
-        total += item.price * item.quantity;
-      }
-    }
-    return total;
   }
 
   Future<void> _loadPurchaseHistory() async {
@@ -1636,6 +1569,14 @@ class _HomePageState extends State<HomePage> {
       _cartItems.addAll(updatedStock);
     });
     _saveCartToFirestore(); // Save the updated cart to Firestore
+  }
+
+  // In HomePage, add the clear cart method
+  void _clearCart() {
+    setState(() {
+      _cartItems.clear();
+    });
+    _saveCartToFirestore();
   }
 }
 
@@ -1991,9 +1932,12 @@ class _StocksPageState extends State<StocksPage> {
                                 icon: const Icon(Icons.remove_circle_outline),
                                 color: Colors.red,
                                 onPressed: () {
-                                  final newQuantity = (item['quantity'] as int) - 1;
-                                  if (newQuantity >= 0) {  // Only allow quantities >= 0
-                                    _updateStockImmediately(section, item, newQuantity);
+                                  final newQuantity =
+                                      (item['quantity'] as int) - 1;
+                                  if (newQuantity >= 0) {
+                                    // Only allow quantities >= 0
+                                    _updateStockImmediately(
+                                        section, item, newQuantity);
                                     if (widget.onQuantityChange != null) {
                                       widget.onQuantityChange!(
                                         section,
@@ -2006,7 +1950,8 @@ class _StocksPageState extends State<StocksPage> {
                                 },
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: (item['quantity'] as int) == 0
                                       ? Colors.red.withOpacity(0.1)
@@ -2027,8 +1972,10 @@ class _StocksPageState extends State<StocksPage> {
                                 icon: const Icon(Icons.add_circle_outline),
                                 color: Colors.green,
                                 onPressed: () {
-                                  final newQuantity = (item['quantity'] as int) + 1;
-                                  _updateStockImmediately(section, item, newQuantity);
+                                  final newQuantity =
+                                      (item['quantity'] as int) + 1;
+                                  _updateStockImmediately(
+                                      section, item, newQuantity);
                                   if (widget.onQuantityChange != null) {
                                     widget.onQuantityChange!(
                                       section,
@@ -2042,7 +1989,8 @@ class _StocksPageState extends State<StocksPage> {
                               IconButton(
                                 icon: const Icon(Icons.delete_outline),
                                 color: Colors.red,
-                                onPressed: () => _showDeleteDialog(section, item),
+                                onPressed: () =>
+                                    _showDeleteDialog(section, item),
                               ),
                             ],
                           ),
@@ -2112,6 +2060,8 @@ class _StocksPageState extends State<StocksPage> {
       ],
     );
   }
+
+  // Modify _showQuantityDialog to use immediate updates
 
   // Modify _showDeleteDialog to use immediate updates
   void _showDeleteDialog(String section, Map<String, dynamic> item) {
@@ -2402,35 +2352,11 @@ class CartPage extends StatefulWidget {
 
 class _CartPageState extends State<CartPage> {
   final Map<String, int> _originalStockQuantities = {};
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-    try {
-      await Future.wait([
-        _loadOriginalStockQuantities(),
-        _loadCartFromFirestore(),
-      ]);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
+    _loadOriginalStockQuantities();
   }
 
   Future<void> _loadOriginalStockQuantities() async {
@@ -2469,98 +2395,8 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
-  Future<void> _loadCartFromFirestore() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-
-      final doc = await docRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        final cartList = data['cart'] as List<dynamic>?;
-        if (cartList != null) {
-          setState(() {
-            widget.cartItems.clear();
-            for (var entry in cartList) {
-              final section = entry['section'] as String;
-              if (!widget.cartItems.containsKey(section)) {
-                widget.cartItems[section] = [];
-              }
-              widget.cartItems[section]!.add(
-                CartItem(
-                  name: entry['name'],
-                  quantity: entry['quantity'],
-                  price: (entry['price'] as num).toDouble(),
-                  section: section,
-                ),
-              );
-            }
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading cart: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _saveCartToFirestore() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-
-      // Convert cart items to a format suitable for Firestore
-      final List<Map<String, dynamic>> cartList = [];
-      widget.cartItems.forEach((section, items) {
-        for (var item in items) {
-          cartList.add({
-            'section': section,
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-          });
-        }
-      });
-
-      await docRef.set({'cart': cartList});
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving cart: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
-    }
-
     // Filter items that have changed quantity (deducted from stock)
     final Map<String, List<CartItem>> changedItems = {};
     widget.cartItems.forEach((section, items) {
@@ -2598,7 +2434,7 @@ class _CartPageState extends State<CartPage> {
             ),
             SizedBox(height: 16),
             Text(
-              'Your cart is empty',
+              'Your Cart is Empty',
               style: TextStyle(
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
@@ -2632,16 +2468,17 @@ class _CartPageState extends State<CartPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.1),
+                      color: Colors.green.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       children: [
                         Icon(
                           _getSectionIcon(section),
-                          color: _getSectionColor(section),
+                          color: Colors.green,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -2650,6 +2487,7 @@ class _CartPageState extends State<CartPage> {
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            color: Colors.green,
                           ),
                         ),
                       ],
@@ -2658,7 +2496,8 @@ class _CartPageState extends State<CartPage> {
                   const SizedBox(height: 8),
                   ...items.map((item) {
                     final originalQuantity =
-                        _originalStockQuantities['${section}_${item.name}'] ?? 0;
+                        _originalStockQuantities['${section}_${item.name}'] ??
+                            0;
                     final deductedQuantity = originalQuantity - item.quantity;
                     return Card(
                       elevation: 2,
@@ -2719,7 +2558,8 @@ class _CartPageState extends State<CartPage> {
                       ),
                     );
                   }),
-                  if (index < changedItems.length - 1) const SizedBox(height: 16),
+                  if (index < changedItems.length - 1)
+                    const SizedBox(height: 16),
                 ],
               );
             },
@@ -2739,65 +2579,63 @@ class _CartPageState extends State<CartPage> {
           ),
           child: Column(
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Amount:',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Total Amount:',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey,
                     ),
-                    Text(
-                      'Php ${total.toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
+                  ),
+                  Text(
+                    'Php ${total.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () async {
-                        await widget.onClearCart();
-                        await _saveCartToFirestore();
-                      },
+                      onPressed: widget.onClearCart,
                       icon: const Icon(Icons.delete_outline),
                       label: const Text('Clear Cart'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        await widget.onConfirmPurchase();
-                        await _saveCartToFirestore();
-                      },
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Confirm Purchase'),
+                    child: ElevatedButton(
+                      onPressed: widget.onConfirmPurchase,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'CONFIRM PURCHASE',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -2826,25 +2664,6 @@ class _CartPageState extends State<CartPage> {
         return Icons.cookie_outlined;
       default:
         return Icons.category;
-    }
-  }
-
-  Color _getSectionColor(String section) {
-    switch (section) {
-      case 'Bakery & Bread':
-        return Colors.orange;
-      case 'Dairy':
-        return Colors.blue;
-      case 'Meat':
-        return Colors.red;
-      case 'Seafood':
-        return Colors.lightBlue;
-      case 'Frozen Foods':
-        return Colors.cyan;
-      case 'Snacks':
-        return Colors.pink;
-      default:
-        return Colors.grey;
     }
   }
 }
@@ -3742,10 +3561,10 @@ class SettingsPage extends StatelessWidget {
         await _authService.deleteAccount();
 
         if (!context.mounted) return;
-        
+
         // Close loading dialog
         Navigator.pop(context);
-        
+
         // Show success message and navigate to login
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -3753,15 +3572,15 @@ class SettingsPage extends StatelessWidget {
             backgroundColor: Colors.green,
           ),
         );
-        
+
         Navigator.pushReplacementNamed(context, '/');
       }
     } catch (e) {
       if (!context.mounted) return;
-      
+
       // Close loading dialog if it's open
       Navigator.pop(context);
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error deleting account: ${e.toString()}'),
@@ -3811,7 +3630,51 @@ class SettingsPage extends StatelessWidget {
                 context: context,
                 applicationName: 'ReStckr',
                 applicationVersion: '1.0.0',
-                applicationLegalese: 'Developed by Your Name',
+                applicationIcon: const Icon(
+                  Icons.shopping_bag_outlined,
+                  size: 50,
+                  color: Colors.green,
+                ),
+                applicationLegalese: '© 2024 ReStckr. All rights reserved.',
+                children: [
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Developed by:',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '• Vincent Sanchez\n'
+                    '• Jhone Mayo\n'
+                    '• Lei Suarez',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'ReStckr is a comprehensive inventory management system designed to help businesses and individuals track their stock levels, manage purchases, and maintain an organized inventory.',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Features:',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '• Real-time stock tracking\n'
+                    '• Purchase history\n'
+                    '• Shopping cart management\n'
+                    '• Activity monitoring\n'
+                    '• Event scheduling',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ],
               );
             },
           ),
