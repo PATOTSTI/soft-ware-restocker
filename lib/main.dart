@@ -11,6 +11,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,11 +31,27 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(),
+              ),
+            );
+          }
+
+          if (snapshot.hasData) {
+            return const HomePage();
+          }
+
+          return const LoginPage();
+        },
+      ),
       routes: {
-        '/': (context) => const LoginPage(),
         '/signup': (context) => const SignUpPage(),
         '/forgot-password': (context) => const ForgotPasswordPage(),
-        '/home': (context) => const HomePage(),
       },
     );
   }
@@ -42,10 +59,25 @@ class MyApp extends StatelessWidget {
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  // Add method to get current user
+  User? get currentUser => _auth.currentUser;
+
+  // Add method to check if user is logged in
+  bool get isLoggedIn => _auth.currentUser != null;
+
   Future<bool> signInWithEmailAndPassword(String email, String password) async {
     try {
-      await _auth.signInWithEmailAndPassword(email: email, password: password);
-      return true;
+      // Set persistence to LOCAL before signing in
+      await _auth.setPersistence(Persistence.LOCAL);
+      
+      final userCredential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      
+      return userCredential.user != null;
     } on FirebaseAuthException catch (e) {
       if (e.code == 'user-not-found') {
         throw Exception('No user found for that email.');
@@ -61,22 +93,23 @@ class AuthService {
 
   Future<bool> signInWithGoogle() async {
     try {
+      // Set persistence to LOCAL before signing in
+      await _auth.setPersistence(Persistence.LOCAL);
+      
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
       );
 
       // Check if user is already signed in
-      final GoogleSignInAccount? currentUser =
-          await googleSignIn.signInSilently();
+      final GoogleSignInAccount? currentUser = await googleSignIn.signInSilently();
       if (currentUser != null) {
-        final GoogleSignInAuthentication googleAuth =
-            await currentUser.authentication;
+        final GoogleSignInAuthentication googleAuth = await currentUser.authentication;
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
         );
-        await _auth.signInWithCredential(credential);
-        return true;
+        final userCredential = await _auth.signInWithCredential(credential);
+        return userCredential.user != null;
       }
 
       // If not signed in, start the sign-in flow
@@ -85,15 +118,14 @@ class AuthService {
         throw Exception('Google sign-in cancelled');
       }
 
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      await _auth.signInWithCredential(credential);
-      return true;
+      final userCredential = await _auth.signInWithCredential(credential);
+      return userCredential.user != null;
     } on FirebaseAuthException catch (e) {
       throw Exception('Firebase authentication failed: ${e.message}');
     } catch (e) {
@@ -103,14 +135,16 @@ class AuthService {
 
   Future<bool> signInWithFacebook() async {
     try {
+      // Set persistence to LOCAL before signing in
+      await _auth.setPersistence(Persistence.LOCAL);
+      
       final LoginResult result = await FacebookAuth.instance.login(
         permissions: ['email', 'public_profile'],
       );
       if (result.status == LoginStatus.success) {
-        final OAuthCredential facebookAuthCredential =
-            FacebookAuthProvider.credential(result.accessToken!.token);
-        await _auth.signInWithCredential(facebookAuthCredential);
-        return true;
+        final OAuthCredential facebookAuthCredential = FacebookAuthProvider.credential(result.accessToken!.token);
+        final userCredential = await _auth.signInWithCredential(facebookAuthCredential);
+        return userCredential.user != null;
       } else {
         throw Exception('Facebook sign-in cancelled');
       }
@@ -165,6 +199,52 @@ class AuthService {
       throw Exception('Failed to sign out: ${e.toString()}');
     }
   }
+
+  Future<bool> updateProfile(String fullName, String? photoURL) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        throw Exception('No user is currently signed in');
+      }
+
+      await user.updateDisplayName(fullName);
+      if (photoURL != null) {
+        await user.updatePhotoURL(photoURL);
+      }
+      await user.reload();
+      return true;
+    } catch (e) {
+      throw Exception('Failed to update profile: ${e.toString()}');
+    }
+  }
+
+  Future<bool> deleteAccount() async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) {
+        throw Exception('No user is currently signed in');
+      }
+
+      // Delete user data from Firestore
+      await _firestore.collection('users').doc(user.uid).delete();
+      
+      // Delete user's cart data
+      await _firestore.collection('users').doc(user.uid).collection('cart').doc('cart_data').delete();
+      
+      // Delete user's stock data
+      await _firestore.collection('users').doc(user.uid).collection('stocks').doc('stock_data').delete();
+      
+      // Delete user's activity data
+      await _firestore.collection('users').doc(user.uid).collection('activity').doc('purchase_history').delete();
+
+      // Delete the user account
+      await user.delete();
+      
+      return true;
+    } catch (e) {
+      throw Exception('Failed to delete account: ${e.toString()}');
+    }
+  }
 }
 
 class LoginPage extends StatefulWidget {
@@ -193,7 +273,8 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (success && mounted) {
-          Navigator.pushReplacementNamed(context, '/home');
+          // Remove the navigation since StreamBuilder will handle it
+          // Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
         if (!mounted) return;
@@ -213,7 +294,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithGoogle();
       if (success && mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+        // Remove the navigation since StreamBuilder will handle it
+        // Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -232,7 +314,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithFacebook();
       if (success && mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
+        // Remove the navigation since StreamBuilder will handle it
+        // Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -328,8 +411,8 @@ class _LoginPageState extends State<LoginPage> {
                             autofocus: true,
                             textInputAction: TextInputAction.done,
                             onTap: () {
-                              _emailController
-                                  .selection = TextSelection.fromPosition(
+                              _emailController.selection =
+                                  TextSelection.fromPosition(
                                 TextPosition(
                                   offset: _emailController.text.length,
                                 ),
@@ -360,8 +443,8 @@ class _LoginPageState extends State<LoginPage> {
                             obscureText: _obscurePassword,
                             textInputAction: TextInputAction.done,
                             onTap: () {
-                              _passwordController
-                                  .selection = TextSelection.fromPosition(
+                              _passwordController.selection =
+                                  TextSelection.fromPosition(
                                 TextPosition(
                                   offset: _passwordController.text.length,
                                 ),
@@ -409,30 +492,27 @@ class _LoginPageState extends State<LoginPage> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child:
-                                _isLoading
-                                    ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
                                       ),
-                                    )
-                                    : const Text('LOGIN'),
+                                    ),
+                                  )
+                                : const Text('LOGIN'),
                           ),
                           const SizedBox(height: 16),
                           // Forgot Password
                           Center(
                             child: TextButton(
-                              onPressed:
-                                  () => Navigator.pushNamed(
-                                    context,
-                                    '/forgot-password',
-                                  ),
+                              onPressed: () => Navigator.pushNamed(
+                                context,
+                                '/forgot-password',
+                              ),
                               child: const Text(
                                 'Forgot password?',
                                 style: TextStyle(color: Colors.orange),
@@ -445,7 +525,10 @@ class _LoginPageState extends State<LoginPage> {
                             children: [
                               const Text("Don't have an account?"),
                               TextButton(
-                                onPressed: () => navigateWithFade(context, const SignUpPage()),
+                                onPressed: () => navigateWithFade(
+                                  context,
+                                  const SignUpPage(),
+                                ),
                                 child: const Text(
                                   'Sign up',
                                   style: TextStyle(color: Colors.orange),
@@ -558,7 +641,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
   @override
   Widget build(BuildContext context) {
-    final accentColor = Colors.orange; // Use your app's accent color
+    const accentColor = Colors.orange; // Use your app's accent color
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
@@ -610,17 +693,17 @@ class _SignUpPageState extends State<SignUpPage> {
                       controller: _fullNameController,
                       autofocus: true,
                       textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Full name',
-                        labelStyle: const TextStyle(color: Colors.grey),
+                        labelStyle: TextStyle(color: Colors.grey),
                         border: InputBorder.none,
-                        enabledBorder: const UnderlineInputBorder(
+                        enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
                         focusedBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: accentColor, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -635,17 +718,17 @@ class _SignUpPageState extends State<SignUpPage> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         labelText: 'Email',
-                        labelStyle: const TextStyle(color: Colors.grey),
+                        labelStyle: TextStyle(color: Colors.grey),
                         border: InputBorder.none,
-                        enabledBorder: const UnderlineInputBorder(
+                        enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
                         focusedBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: accentColor, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        contentPadding: EdgeInsets.symmetric(vertical: 8),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
@@ -670,7 +753,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
-                        focusedBorder: UnderlineInputBorder(
+                        focusedBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: accentColor, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
@@ -711,7 +794,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
-                        focusedBorder: UnderlineInputBorder(
+                        focusedBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: accentColor, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
@@ -724,7 +807,8 @@ class _SignUpPageState extends State<SignUpPage> {
                           ),
                           onPressed: () {
                             setState(() {
-                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                              _obscureConfirmPassword =
+                                  !_obscureConfirmPassword;
                             });
                           },
                         ),
@@ -783,7 +867,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         const Text('Already have an account?'),
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(),
-                          child: Text(
+                          child: const Text(
                             'Login',
                             style: TextStyle(
                               color: accentColor,
@@ -868,8 +952,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: 500,
-              maxHeight:
-                  MediaQuery.of(context).size.height -
+              maxHeight: MediaQuery.of(context).size.height -
                   MediaQuery.of(context).padding.top -
                   MediaQuery.of(context).padding.bottom,
             ),
@@ -1025,20 +1108,19 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                              child:
-                                  _isLoading
-                                      ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
                                         ),
-                                      )
-                                      : const Text('SEND RESET LINK'),
+                                      ),
+                                    )
+                                  : const Text('SEND RESET LINK'),
                             ),
                           ],
                         ),
@@ -1071,40 +1153,35 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final List<PurchaseHistory> _purchaseHistory = [];
   final Map<String, List<CartItem>> _cartItems = {};
-  final AuthService _authService = AuthService();
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadPurchaseHistory();
-    _loadStockDataToCartItems();
-    _loadCartFromFirestore();
+    _loadData();
   }
 
-  Future<void> _saveCartToFirestore() async {
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-      // Save as a flat list of items
-      final List<Map<String, dynamic>> cartList = [];
-      _cartItems.forEach((section, items) {
-        for (var item in items) {
-          cartList.add({
-            'section': section,
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-          });
-        }
-      });
-      await docRef.set({'cart': cartList});
+      await Future.wait([
+        _loadPurchaseHistory(),
+        _loadStockDataToCartItems(),
+        _loadCartFromFirestore(),
+      ]);
     } catch (e) {
-      // Optionally show error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -1112,11 +1189,13 @@ class _HomePageState extends State<HomePage> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
+
       final docRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('cart')
           .doc('cart_data');
+
       final doc = await docRef.get();
       if (doc.exists) {
         final data = doc.data() as Map<String, dynamic>;
@@ -1142,13 +1221,99 @@ class _HomePageState extends State<HomePage> {
         }
       }
     } catch (e) {
-      // Optionally show error
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
-  void _onItemTapped(int index) {
+  Future<void> _saveCartToFirestore() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('cart')
+          .doc('cart_data');
+
+      // Convert cart items to a format suitable for Firestore
+      final List<Map<String, dynamic>> cartList = [];
+      _cartItems.forEach((section, items) {
+        for (var item in items) {
+          cartList.add({
+            'section': section,
+            'name': item.name,
+            'quantity': item.quantity,
+            'price': item.price,
+          });
+        }
+      });
+
+      await docRef.set({'cart': cartList});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _clearCart() {
     setState(() {
-      _selectedIndex = index;
+      _cartItems.clear();
+    });
+    _saveCartToFirestore();
+  }
+
+  void _handleQuantityChange(
+    String section,
+    String itemName,
+    int newQuantity,
+    double price,
+  ) {
+    setState(() {
+      if (!_cartItems.containsKey(section)) {
+        _cartItems[section] = [];
+      }
+
+      final cartSection = _cartItems[section]!;
+      final existingItemIndex = cartSection.indexWhere(
+        (item) => item.name == itemName,
+      );
+
+      if (existingItemIndex != -1) {
+        final item = cartSection[existingItemIndex];
+        item.quantity = newQuantity;
+        item.price = price;
+
+        if (newQuantity == 0) {
+          cartSection.removeAt(existingItemIndex);
+          if (cartSection.isEmpty) {
+            _cartItems.remove(section);
+          }
+        }
+      } else if (newQuantity > 0) {
+        cartSection.add(
+          CartItem(
+            name: itemName,
+            quantity: newQuantity,
+            price: price,
+            section: section,
+          ),
+        );
+      }
+      _saveCartToFirestore();
     });
   }
 
@@ -1160,17 +1325,15 @@ class _HomePageState extends State<HomePage> {
 
       var existingItem = _cartItems[section]!.firstWhere(
         (item) => item.name == itemName,
-        orElse:
-            () => CartItem(
-              name: itemName,
-              quantity: 0,
-              price: price,
-              section: section,
-            ),
+        orElse: () => CartItem(
+          name: itemName,
+          quantity: 0,
+          price: price,
+          section: section,
+        ),
       );
 
       if (existingItem.quantity == 0) {
-        // New item
         existingItem = CartItem(
           name: itemName,
           quantity: 1,
@@ -1179,11 +1342,10 @@ class _HomePageState extends State<HomePage> {
         );
         _cartItems[section]!.add(existingItem);
       } else {
-        // Existing item
         existingItem.quantity++;
       }
 
-      _saveCartToFirestore(); // Save cart after change
+      _saveCartToFirestore();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1195,313 +1357,23 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _handleQuantityChange(
-    String section,
-    String itemName,
-    int newQuantity,
-    double price,
-  ) {
-    setState(() {
-      // Find or create the section
-      if (!_cartItems.containsKey(section)) {
-        _cartItems[section] = [];
-      }
-
-      // Find the item in cart items
-      final cartSection = _cartItems[section]!;
-      final existingItemIndex = cartSection.indexWhere(
-        (item) => item.name == itemName,
-      );
-
-      if (existingItemIndex != -1) {
-        // Update existing item
-        final item = cartSection[existingItemIndex];
-        item.quantity = newQuantity;
-        item.price = price;
-
-        // If quantity is 0, remove from cart
-        if (newQuantity == 0) {
-          cartSection.removeAt(existingItemIndex);
-          if (cartSection.isEmpty) {
-            _cartItems.remove(section);
-          }
-        }
-      } else if (newQuantity > 0) {
-        // Add new item
-        cartSection.add(
-          CartItem(
-            name: itemName,
-            quantity: newQuantity,
-            price: price,
-            section: section,
-          ),
-        );
-      }
-      _saveCartToFirestore(); // Save cart after change
-    });
-  }
-
-  void _confirmPurchase() {
-    if (_cartItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Your cart is empty'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // Create a map of all items and their quantities
-    Map<String, int> purchasedItems = {};
-    for (var section in _cartItems.entries) {
-      for (var item in section.value) {
-        purchasedItems[item.name] = item.quantity;
-      }
-    }
-
-    // Add to purchase history
-    final purchase = PurchaseHistory(
-      date: DateTime.now(),
-      amount: _calculateTotal(),
-      items: purchasedItems,
-    );
-
-    setState(() {
-      _purchaseHistory.add(purchase);
-      // Do NOT clear cart here
-    });
-
-    _savePurchaseHistory(); // Save to Firestore
-    // Do NOT clear cart in Firestore here
-
-    // Show confirmation dialog
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Purchase Confirmed'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text('Items purchased:'),
-                const SizedBox(height: 4),
-                ...purchasedItems.entries.map(
-                  (entry) => Text('• ${entry.key} (${entry.value}x)'),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                },
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-    );
-  }
-
-  void _handleLogout() async {
-    try {
-      await _authService.signOut();
-      if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/');
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error signing out: ${e.toString()}')),
-      );
-    }
-  }
-
-  void _showSettingsDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.person_outline, color: Colors.blue),
-              title: const Text('Edit Profile'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Implement Edit Profile functionality
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Edit Profile tapped')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.brightness_6, color: Colors.amber),
-              title: const Text('Change Theme'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Implement Theme Toggle
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Change Theme tapped')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.notifications_active, color: Colors.deepPurple),
-              title: const Text('Notifications'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Implement Notifications Toggle
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Notifications tapped')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.privacy_tip, color: Colors.green),
-              title: const Text('Privacy Policy'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Show Privacy Policy
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Privacy Policy tapped')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
-              title: const Text('About'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Show About Dialog
-                showAboutDialog(
-                  context: context,
-                  applicationName: 'ReStckr',
-                  applicationVersion: '1.0.0',
-                  applicationLegalese: 'Developed by Your Name',
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.support_agent, color: Colors.teal),
-              title: const Text('Contact Support'),
-              onTap: () {
-                Navigator.pop(context);
-                // TODO: Implement Contact Support (e.g., open email)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Contact Support tapped')),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete_forever, color: Colors.red),
-              title: const Text('Delete Account'),
-              onTap: () {
-                Navigator.pop(context);
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Delete Account'),
-                    content: const Text('Are you sure you want to delete your account? This action cannot be undone.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          // TODO: Implement Delete Account
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Account deletion not implemented.')),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          foregroundColor: Colors.white,
-                        ),
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text('Logout'),
-              onTap: () {
-                Navigator.pop(context);
-                _handleLogout();
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  double _calculateTotal() {
-    double total = 0;
-    for (var section in _cartItems.entries) {
-      for (var item in section.value) {
-        total += item.price * item.quantity;
-      }
-    }
-    return total;
-  }
-
-  String get _title {
-    switch (_selectedIndex) {
-      case 0:
-        return 'Stocks';
-      case 1:
-        return 'Cart';
-      case 2:
-        return 'Activity';
-      case 3:
-        return 'Events';
-      default:
-        return '';
-    }
-  }
-
-  IconData get _titleIcon {
-    switch (_selectedIndex) {
-      case 0:
-        return Icons.inventory_2_outlined;
-      case 1:
-        return Icons.shopping_bag_outlined;
-      case 2:
-        return Icons.history;
-      case 3:
-        return Icons.calendar_today;
-      default:
-        return Icons.error;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [Icon(_titleIcon), const SizedBox(width: 8), Text(_title)],
+          children: [Icon(_getTitleIcon), const SizedBox(width: 8), Text(_getTitle)],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.notifications), onPressed: null),
+          const IconButton(icon: Icon(Icons.notifications), onPressed: null),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _showSettingsDialog,
@@ -1549,6 +1421,124 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  void _showSettingsDialog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => SettingsPage()),
+    );
+  }
+
+  String get _getTitle {
+    switch (_selectedIndex) {
+      case 0:
+        return 'Stocks';
+      case 1:
+        return 'Cart';
+      case 2:
+        return 'Activity';
+      case 3:
+        return 'Events';
+      default:
+        return '';
+    }
+  }
+
+  IconData get _getTitleIcon {
+    switch (_selectedIndex) {
+      case 0:
+        return Icons.inventory_2_outlined;
+      case 1:
+        return Icons.shopping_bag_outlined;
+      case 2:
+        return Icons.history;
+      case 3:
+        return Icons.calendar_today;
+      default:
+        return Icons.error;
+    }
+  }
+
+  void _confirmPurchase() {
+    if (_cartItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your cart is empty'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // Create a map of all items and their quantities
+    Map<String, int> purchasedItems = {};
+    for (var section in _cartItems.entries) {
+      for (var item in section.value) {
+        purchasedItems[item.name] = item.quantity;
+      }
+    }
+
+    // Add to purchase history
+    final purchase = PurchaseHistory(
+      date: DateTime.now(),
+      amount: _calculateTotal(),
+      items: purchasedItems,
+    );
+
+    setState(() {
+      _purchaseHistory.add(purchase);
+    });
+
+    _savePurchaseHistory();
+
+    // Show confirmation dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Purchase Confirmed'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text('Items purchased:'),
+            const SizedBox(height: 4),
+            ...purchasedItems.entries.map(
+              (entry) => Text('• ${entry.key} (${entry.value}x)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _calculateTotal() {
+    double total = 0;
+    for (var section in _cartItems.entries) {
+      for (var item in section.value) {
+        total += item.price * item.quantity;
+      }
+    }
+    return total;
+  }
+
   Future<void> _loadPurchaseHistory() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -1589,16 +1579,15 @@ class _HomePageState extends State<HomePage> {
           .doc(user.uid)
           .collection('activity')
           .doc('purchase_history');
-      final historyList =
-          _purchaseHistory
-              .map(
-                (purchase) => {
-                  'date': purchase.date.toIso8601String(),
-                  'amount': purchase.amount,
-                  'items': purchase.items,
-                },
-              )
-              .toList();
+      final historyList = _purchaseHistory
+          .map(
+            (purchase) => {
+              'date': purchase.date.toIso8601String(),
+              'amount': purchase.amount,
+              'items': purchase.items,
+            },
+          )
+          .toList();
       await docRef.set({'history': historyList});
     } catch (e) {
       // Optionally show error
@@ -1622,17 +1611,16 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _cartItems.clear();
           data.forEach((section, items) {
-            _cartItems[section] =
-                List<Map<String, dynamic>>.from(items)
-                    .map(
-                      (item) => CartItem(
-                        name: item['name'],
-                        quantity: item['quantity'],
-                        price: (item['price'] as num).toDouble(),
-                        section: section,
-                      ),
-                    )
-                    .toList();
+            _cartItems[section] = List<Map<String, dynamic>>.from(items)
+                .map(
+                  (item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ),
+                )
+                .toList();
           });
         });
       }
@@ -1649,14 +1637,6 @@ class _HomePageState extends State<HomePage> {
     });
     _saveCartToFirestore(); // Save the updated cart to Firestore
   }
-
-  // In HomePage, add the clear cart method
-  void _clearCart() {
-    setState(() {
-      _cartItems.clear();
-    });
-    _saveCartToFirestore();
-  }
 }
 
 class StocksPage extends StatefulWidget {
@@ -1667,10 +1647,9 @@ class StocksPage extends StatefulWidget {
     String itemName,
     int newQuantity,
     double price,
-  )?
-  onQuantityChange;
+  )? onQuantityChange;
   final Function(Map<String, List<CartItem>>)?
-  onStockUpdate; // Add this callback
+      onStockUpdate; // Add this callback
 
   const StocksPage({
     super.key,
@@ -1751,17 +1730,16 @@ class _StocksPageState extends State<StocksPage> {
     // Convert and notify parent immediately
     Map<String, List<CartItem>> updatedStock = {};
     _sectionItems.forEach((section, items) {
-      updatedStock[section] =
-          items
-              .map(
-                (item) => CartItem(
-                  name: item['name'],
-                  quantity: item['quantity'],
-                  price: item['price'],
-                  section: section,
-                ),
-              )
-              .toList();
+      updatedStock[section] = items
+          .map(
+            (item) => CartItem(
+              name: item['name'],
+              quantity: item['quantity'],
+              price: item['price'],
+              section: section,
+            ),
+          )
+          .toList();
     });
 
     // Notify parent about stock update immediately
@@ -1839,17 +1817,16 @@ class _StocksPageState extends State<StocksPage> {
       // Convert _sectionItems to CartItems format and notify parent
       Map<String, List<CartItem>> updatedStock = {};
       _sectionItems.forEach((section, items) {
-        updatedStock[section] =
-            items
-                .map(
-                  (item) => CartItem(
-                    name: item['name'],
-                    quantity: item['quantity'],
-                    price: item['price'],
-                    section: section,
-                  ),
-                )
-                .toList();
+        updatedStock[section] = items
+            .map(
+              (item) => CartItem(
+                name: item['name'],
+                quantity: item['quantity'],
+                price: item['price'],
+                section: section,
+              ),
+            )
+            .toList();
       });
 
       // Notify parent about stock update
@@ -1892,17 +1869,16 @@ class _StocksPageState extends State<StocksPage> {
     // Convert current state to CartItems format and notify parent immediately
     Map<String, List<CartItem>> updatedStock = {};
     _sectionItems.forEach((section, items) {
-      updatedStock[section] =
-          items
-              .map(
-                (item) => CartItem(
-                  name: item['name'],
-                  quantity: item['quantity'],
-                  price: item['price'],
-                  section: section,
-                ),
-              )
-              .toList();
+      updatedStock[section] = items
+          .map(
+            (item) => CartItem(
+              name: item['name'],
+              quantity: item['quantity'],
+              price: item['price'],
+              section: section,
+            ),
+          )
+          .toList();
     });
 
     // Notify parent about stock update immediately
@@ -1952,9 +1928,7 @@ class _StocksPageState extends State<StocksPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
@@ -1967,9 +1941,7 @@ class _StocksPageState extends State<StocksPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
@@ -2015,32 +1987,62 @@ class _StocksPageState extends State<StocksPage> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              TextButton(
-                                onPressed:
-                                    () => _showQuantityDialog(section, item),
-                                style: TextButton.styleFrom(
-                                  backgroundColor:
-                                      item['quantity'] == 0
-                                          ? Colors.red.withAlpha(26)
-                                          : Colors.blue.withAlpha(26),
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline),
+                                color: Colors.red,
+                                onPressed: () {
+                                  final newQuantity = (item['quantity'] as int) - 1;
+                                  if (newQuantity >= 0) {  // Only allow quantities >= 0
+                                    _updateStockImmediately(section, item, newQuantity);
+                                    if (widget.onQuantityChange != null) {
+                                      widget.onQuantityChange!(
+                                        section,
+                                        item['name'],
+                                        newQuantity,
+                                        item['price'],
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: (item['quantity'] as int) == 0
+                                      ? Colors.red.withOpacity(0.1)
+                                      : Colors.blue.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
                                   '${item['quantity']}',
                                   style: TextStyle(
-                                    color:
-                                        item['quantity'] == 0
-                                            ? Colors.red
-                                            : Colors.blue,
+                                    color: (item['quantity'] as int) == 0
+                                        ? Colors.red
+                                        : Colors.blue,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.red,
-                                ),
-                                onPressed:
-                                    () => _showDeleteDialog(section, item),
+                                icon: const Icon(Icons.add_circle_outline),
+                                color: Colors.green,
+                                onPressed: () {
+                                  final newQuantity = (item['quantity'] as int) + 1;
+                                  _updateStockImmediately(section, item, newQuantity);
+                                  if (widget.onQuantityChange != null) {
+                                    widget.onQuantityChange!(
+                                      section,
+                                      item['name'],
+                                      newQuantity,
+                                      item['price'],
+                                    );
+                                  }
+                                },
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline),
+                                color: Colors.red,
+                                onPressed: () => _showDeleteDialog(section, item),
                               ),
                             ],
                           ),
@@ -2111,131 +2113,74 @@ class _StocksPageState extends State<StocksPage> {
     );
   }
 
-  // Modify _showQuantityDialog to use immediate updates
-  void _showQuantityDialog(String section, Map<String, dynamic> item) {
-    final TextEditingController quantityController = TextEditingController(
-      text: item['quantity'].toString(),
-    );
-
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Edit ${item['name']} Quantity'),
-            content: TextField(
-              controller: quantityController,
-              keyboardType: TextInputType.number,
-              autofocus: true, // Add autofocus
-              textInputAction: TextInputAction.done, // Add text input action
-              decoration: const InputDecoration(
-                labelText: 'Quantity',
-                hintText: 'Enter quantity',
-                border:
-                    OutlineInputBorder(), // Add border for better visibility
-              ),
-              onChanged: (value) {
-                // Update in real-time as user types
-                final newQuantity = int.tryParse(value) ?? 0;
-                _updateStockImmediately(section, item, newQuantity);
-              },
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () {
-                  final newQuantity =
-                      int.tryParse(quantityController.text) ?? 0;
-                  _updateStockImmediately(section, item, newQuantity);
-                  if (widget.onQuantityChange != null) {
-                    widget.onQuantityChange!(
-                      section,
-                      item['name'],
-                      newQuantity,
-                      item['price'],
-                    );
-                  }
-                  Navigator.pop(context);
-                },
-                child: const Text('Done'),
-              ),
-            ],
-          ),
-    );
-  }
-
   // Modify _showDeleteDialog to use immediate updates
   void _showDeleteDialog(String section, Map<String, dynamic> item) {
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Delete Item'),
-            content: Text('Are you sure you want to delete ${item['name']}?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  setState(() {
-                    _sectionItems[section]?.remove(item);
-                  });
-
-                  // Convert and notify parent immediately
-                  Map<String, List<CartItem>> updatedStock = {};
-                  _sectionItems.forEach((section, items) {
-                    updatedStock[section] =
-                        items
-                            .map(
-                              (item) => CartItem(
-                                name: item['name'],
-                                quantity: item['quantity'],
-                                price: item['price'],
-                                section: section,
-                              ),
-                            )
-                            .toList();
-                  });
-
-                  // Notify parent about stock update immediately
-                  if (widget.onStockUpdate != null) {
-                    widget.onStockUpdate!(updatedStock);
-                  }
-
-                  // Save to Firebase in the background
-                  await _saveStockData();
-
-                  // Notify parent about item deletion with price
-                  if (widget.onQuantityChange != null) {
-                    widget.onQuantityChange!(
-                      section,
-                      item['name'],
-                      0,
-                      item['price'],
-                    );
-                  }
-
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${item['name']} has been deleted'),
-                      backgroundColor: Colors.red,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Delete'),
-              ),
-            ],
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Item'),
+        content: Text('Are you sure you want to delete ${item['name']}?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
           ),
+          ElevatedButton(
+            onPressed: () async {
+              setState(() {
+                _sectionItems[section]?.remove(item);
+              });
+
+              // Convert and notify parent immediately
+              Map<String, List<CartItem>> updatedStock = {};
+              _sectionItems.forEach((section, items) {
+                updatedStock[section] = items
+                    .map(
+                      (item) => CartItem(
+                        name: item['name'],
+                        quantity: item['quantity'],
+                        price: item['price'],
+                        section: section,
+                      ),
+                    )
+                    .toList();
+              });
+
+              // Notify parent about stock update immediately
+              if (widget.onStockUpdate != null) {
+                widget.onStockUpdate!(updatedStock);
+              }
+
+              // Save to Firebase in the background
+              await _saveStockData();
+
+              // Notify parent about item deletion with price
+              if (widget.onQuantityChange != null) {
+                widget.onQuantityChange!(
+                  section,
+                  item['name'],
+                  0,
+                  item['price'],
+                );
+              }
+
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${item['name']} has been deleted'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2252,131 +2197,125 @@ class _StocksPageState extends State<StocksPage> {
 
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Add New Item'),
-            content: SingleChildScrollView(
-              // Add scrolling for smaller screens
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: selectedSection,
-                    decoration: const InputDecoration(
-                      labelText: 'Category',
-                      border: OutlineInputBorder(), // Add border
-                    ),
-                    items:
-                        _expandedSections.keys.map((String section) {
-                          return DropdownMenuItem<String>(
-                            value: section,
-                            child: Text(section),
-                          );
-                        }).toList(),
-                    onChanged: (String? newValue) {
-                      if (newValue != null) {
-                        selectedSection = newValue;
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: itemController,
-                    autofocus: true, // Add autofocus
-                    textInputAction:
-                        TextInputAction.next, // Add text input action
-                    decoration: const InputDecoration(
-                      labelText: 'Item Name',
-                      hintText: 'Enter item name',
-                      border: OutlineInputBorder(), // Add border
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: quantityController,
-                    keyboardType: TextInputType.number,
-                    textInputAction:
-                        TextInputAction.next, // Add text input action
-                    decoration: const InputDecoration(
-                      labelText: 'Quantity',
-                      hintText: 'Enter quantity',
-                      border: OutlineInputBorder(), // Add border
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: priceController,
-                    keyboardType: TextInputType.number,
-                    textInputAction:
-                        TextInputAction.done, // Add text input action
-                    decoration: const InputDecoration(
-                      labelText: 'Price',
-                      hintText: 'Enter price',
-                      prefixText: 'Php ',
-                      border: OutlineInputBorder(), // Add border
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  if (itemController.text.isNotEmpty) {
-                    final quantity = int.tryParse(quantityController.text) ?? 0;
-                    final price = double.tryParse(priceController.text) ?? 0.0;
-
-                    setState(() {
-                      _sectionItems[selectedSection]!.add({
-                        'name': itemController.text,
-                        'quantity': quantity,
-                        'price': price,
-                      });
-                    });
-
-                    // Convert and notify parent immediately
-                    Map<String, List<CartItem>> updatedStock = {};
-                    _sectionItems.forEach((section, items) {
-                      updatedStock[section] =
-                          items
-                              .map(
-                                (item) => CartItem(
-                                  name: item['name'],
-                                  quantity: item['quantity'],
-                                  price: item['price'],
-                                  section: section,
-                                ),
-                              )
-                              .toList();
-                    });
-
-                    // Notify parent about stock update immediately
-                    if (widget.onStockUpdate != null) {
-                      widget.onStockUpdate!(updatedStock);
-                    }
-
-                    // Save to Firebase in the background
-                    await _saveStockData();
-
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '${itemController.text} added successfully',
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
+      builder: (context) => AlertDialog(
+        title: const Text('Add New Item'),
+        content: SingleChildScrollView(
+          // Add scrolling for smaller screens
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: selectedSection,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
+                  border: OutlineInputBorder(), // Add border
+                ),
+                items: _expandedSections.keys.map((String section) {
+                  return DropdownMenuItem<String>(
+                    value: section,
+                    child: Text(section),
+                  );
+                }).toList(),
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    selectedSection = newValue;
                   }
                 },
-                child: const Text('Add'),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: itemController,
+                autofocus: true, // Add autofocus
+                textInputAction: TextInputAction.next, // Add text input action
+                decoration: const InputDecoration(
+                  labelText: 'Item Name',
+                  hintText: 'Enter item name',
+                  border: OutlineInputBorder(), // Add border
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: quantityController,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next, // Add text input action
+                decoration: const InputDecoration(
+                  labelText: 'Quantity',
+                  hintText: 'Enter quantity',
+                  border: OutlineInputBorder(), // Add border
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done, // Add text input action
+                decoration: const InputDecoration(
+                  labelText: 'Price',
+                  hintText: 'Enter price',
+                  prefixText: 'Php ',
+                  border: OutlineInputBorder(), // Add border
+                ),
               ),
             ],
           ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (itemController.text.isNotEmpty) {
+                final quantity = int.tryParse(quantityController.text) ?? 0;
+                final price = double.tryParse(priceController.text) ?? 0.0;
+
+                setState(() {
+                  _sectionItems[selectedSection]!.add({
+                    'name': itemController.text,
+                    'quantity': quantity,
+                    'price': price,
+                  });
+                });
+
+                // Convert and notify parent immediately
+                Map<String, List<CartItem>> updatedStock = {};
+                _sectionItems.forEach((section, items) {
+                  updatedStock[section] = items
+                      .map(
+                        (item) => CartItem(
+                          name: item['name'],
+                          quantity: item['quantity'],
+                          price: item['price'],
+                          section: section,
+                        ),
+                      )
+                      .toList();
+                });
+
+                // Notify parent about stock update immediately
+                if (widget.onStockUpdate != null) {
+                  widget.onStockUpdate!(updatedStock);
+                }
+
+                // Save to Firebase in the background
+                await _saveStockData();
+
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      '${itemController.text} added successfully',
+                    ),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2448,7 +2387,7 @@ class ShoppingList {
 class CartPage extends StatefulWidget {
   final Map<String, List<CartItem>> cartItems;
   final Function() onConfirmPurchase;
-  final Function() onClearCart; // Add this
+  final Function() onClearCart;
 
   const CartPage({
     super.key,
@@ -2462,14 +2401,36 @@ class CartPage extends StatefulWidget {
 }
 
 class _CartPageState extends State<CartPage> {
-  ShoppingList? _shoppingList;
   final Map<String, int> _originalStockQuantities = {};
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _updateShoppingList();
-    _loadOriginalStockQuantities();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      await Future.wait([
+        _loadOriginalStockQuantities(),
+        _loadCartFromFirestore(),
+      ]);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<void> _loadOriginalStockQuantities() async {
@@ -2508,18 +2469,107 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
+  Future<void> _loadCartFromFirestore() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('cart')
+          .doc('cart_data');
+
+      final doc = await docRef.get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        final cartList = data['cart'] as List<dynamic>?;
+        if (cartList != null) {
+          setState(() {
+            widget.cartItems.clear();
+            for (var entry in cartList) {
+              final section = entry['section'] as String;
+              if (!widget.cartItems.containsKey(section)) {
+                widget.cartItems[section] = [];
+              }
+              widget.cartItems[section]!.add(
+                CartItem(
+                  name: entry['name'],
+                  quantity: entry['quantity'],
+                  price: (entry['price'] as num).toDouble(),
+                  section: section,
+                ),
+              );
+            }
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveCartToFirestore() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('cart')
+          .doc('cart_data');
+
+      // Convert cart items to a format suitable for Firestore
+      final List<Map<String, dynamic>> cartList = [];
+      widget.cartItems.forEach((section, items) {
+        for (var item in items) {
+          cartList.add({
+            'section': section,
+            'name': item.name,
+            'quantity': item.quantity,
+            'price': item.price,
+          });
+        }
+      });
+
+      await docRef.set({'cart': cartList});
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
     // Filter items that have changed quantity (deducted from stock)
     final Map<String, List<CartItem>> changedItems = {};
     widget.cartItems.forEach((section, items) {
-      final changedSectionItems =
-          items.where((item) {
-            final originalQuantity =
-                _originalStockQuantities['${section}_${item.name}'] ?? 0;
-            final deductedQuantity = originalQuantity - item.quantity;
-            return deductedQuantity > 0;
-          }).toList();
+      final changedSectionItems = items.where((item) {
+        final originalQuantity =
+            _originalStockQuantities['${section}_${item.name}'] ?? 0;
+        final deductedQuantity = originalQuantity - item.quantity;
+        return deductedQuantity > 0;
+      }).toList();
       if (changedSectionItems.isNotEmpty) {
         changedItems[section] = changedSectionItems;
       }
@@ -2537,32 +2587,30 @@ class _CartPageState extends State<CartPage> {
     });
 
     if (changedItems.isEmpty) {
-      return Center(
+      return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
+            Icon(
               Icons.shopping_cart_outlined,
-              size: 64,
+              size: 80,
               color: Colors.grey,
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'No items to buy',
-              style: TextStyle(fontSize: 18, color: Colors.grey),
+            SizedBox(height: 16),
+            Text(
+              'Your cart is empty',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey,
+              ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: _showShoppingList,
-              icon: const Icon(Icons.shopping_basket),
-              label: const Text('View Shopping List'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
+            SizedBox(height: 8),
+            Text(
+              'Add items from your stock to get started',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
               ),
             ),
           ],
@@ -2574,6 +2622,7 @@ class _CartPageState extends State<CartPage> {
       children: [
         Expanded(
           child: ListView.builder(
+            padding: const EdgeInsets.all(16),
             itemCount: changedItems.length,
             itemBuilder: (context, index) {
               final section = changedItems.keys.elementAt(index);
@@ -2582,44 +2631,95 @@ class _CartPageState extends State<CartPage> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text(
-                      section,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _getSectionIcon(section),
+                          color: _getSectionColor(section),
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          section,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 8),
                   ...items.map((item) {
                     final originalQuantity =
-                        _originalStockQuantities['${section}_${item.name}'] ??
-                        0;
+                        _originalStockQuantities['${section}_${item.name}'] ?? 0;
                     final deductedQuantity = originalQuantity - item.quantity;
-                    return ListTile(
-                      title: Text(item.name),
-                      subtitle: Text('Php ${item.price.toStringAsFixed(2)}'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${deductedQuantity}x',
-                            style: const TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
+                    return Card(
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.name,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Php ${item.price.toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: Colors.grey[600],
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Php ${(item.price * deductedQuantity).toStringAsFixed(2)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Text(
+                                '${deductedQuantity}x',
+                                style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              'Php ${(item.price * deductedQuantity).toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   }),
-                  if (index < changedItems.length - 1) const Divider(),
+                  if (index < changedItems.length - 1) const SizedBox(height: 16),
                 ],
               );
             },
@@ -2631,7 +2731,7 @@ class _CartPageState extends State<CartPage> {
             color: Colors.white,
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withAlpha(13),
+                color: Colors.black.withOpacity(0.1),
                 blurRadius: 10,
                 offset: const Offset(0, -5),
               ),
@@ -2639,32 +2739,47 @@ class _CartPageState extends State<CartPage> {
           ),
           child: Column(
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Estimated Cost:',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
-                  Text(
-                    'Php ${total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total Amount:',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
                     ),
-                  ),
-                ],
+                    Text(
+                      'Php ${total.toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: _showShoppingList,
-                      icon: const Icon(Icons.shopping_basket),
-                      label: const Text('Shopping List'),
+                      onPressed: () async {
+                        await widget.onClearCart();
+                        await _saveCartToFirestore();
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Clear Cart'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
+                        backgroundColor: Colors.red,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
@@ -2672,40 +2787,21 @@ class _CartPageState extends State<CartPage> {
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: ElevatedButton(
-                      onPressed: widget.onConfirmPurchase,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await widget.onConfirmPurchase();
+                        await _saveCartToFirestore();
+                      },
+                      icon: const Icon(Icons.check_circle_outline),
+                      label: const Text('Confirm Purchase'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.green,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'CONFIRM PURCHASE',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
                       ),
                     ),
                   ),
                 ],
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton.icon(
-                onPressed: widget.onClearCart,
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Clear Cart'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
               ),
             ],
           ),
@@ -2714,171 +2810,42 @@ class _CartPageState extends State<CartPage> {
     );
   }
 
-  void _updateShoppingList() {
-    List<CartItem> lowStockItems = [];
-
-    // Check all sections for low stock items
-    for (var section in widget.cartItems.entries) {
-      for (var item in section.value) {
-        if (item.quantity <= 5) {
-          // Include items with quantity 0-5
-          // Check if item is already in shopping list
-          final existingItem = lowStockItems.firstWhere(
-            (i) => i.name == item.name && i.section == item.section,
-            orElse:
-                () => CartItem(
-                  name: item.name,
-                  quantity: 1,
-                  price: item.price,
-                  section: item.section,
-                  isLowStock: true,
-                ),
-          );
-
-          if (existingItem.quantity == 1) {
-            // Only add if it's a new item
-            lowStockItems.add(existingItem);
-          }
-        }
-      }
+  IconData _getSectionIcon(String section) {
+    switch (section) {
+      case 'Bakery & Bread':
+        return Icons.bakery_dining;
+      case 'Dairy':
+        return Icons.water_drop_outlined;
+      case 'Meat':
+        return Icons.restaurant;
+      case 'Seafood':
+        return Icons.set_meal;
+      case 'Frozen Foods':
+        return Icons.ac_unit;
+      case 'Snacks':
+        return Icons.cookie_outlined;
+      default:
+        return Icons.category;
     }
-
-    setState(() {
-      _shoppingList = ShoppingList(
-        items: lowStockItems,
-        generatedDate: DateTime.now(),
-      );
-    });
   }
 
-  void _showShoppingList() {
-    if (_shoppingList == null || _shoppingList!.items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No items in shopping list'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
+  Color _getSectionColor(String section) {
+    switch (section) {
+      case 'Bakery & Bread':
+        return Colors.orange;
+      case 'Dairy':
+        return Colors.blue;
+      case 'Meat':
+        return Colors.red;
+      case 'Seafood':
+        return Colors.lightBlue;
+      case 'Frozen Foods':
+        return Colors.cyan;
+      case 'Snacks':
+        return Colors.pink;
+      default:
+        return Colors.grey;
     }
-
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Shopping List'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Generated on: ${DateFormat('MMM dd, yyyy').format(_shoppingList!.generatedDate)}',
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 16),
-                ..._shoppingList!.items.map(
-                  (item) => ListTile(
-                    title: Text(item.name),
-                    subtitle: Text(
-                      '${item.section} - Php ${item.price.toStringAsFixed(2)}',
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.remove_circle_outline),
-                          onPressed: () {
-                            setState(() {
-                              _shoppingList!.items.remove(item);
-                            });
-                            Navigator.pop(context);
-                            _showShoppingList();
-                          },
-                        ),
-                        Text('${item.quantity}x'),
-                        IconButton(
-                          icon: const Icon(Icons.add_circle_outline),
-                          onPressed: () {
-                            setState(() {
-                              item.quantity++;
-                            });
-                            Navigator.pop(context);
-                            _showShoppingList();
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    'Total: Php ${_shoppingList!.total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  // Add all items to cart
-                  for (var item in _shoppingList!.items) {
-                    // Find the section in cart items
-                    if (!widget.cartItems.containsKey(item.section)) {
-                      widget.cartItems[item.section] = [];
-                    }
-
-                    // Add or update item in cart
-                    final existingItem = widget.cartItems[item.section]!
-                        .firstWhere(
-                          (i) => i.name == item.name,
-                          orElse:
-                              () => CartItem(
-                                name: item.name,
-                                quantity: 0,
-                                price: item.price,
-                                section: item.section,
-                              ),
-                        );
-
-                    if (existingItem.quantity == 0) {
-                      existingItem.quantity = item.quantity;
-                      widget.cartItems[item.section]!.add(existingItem);
-                    } else {
-                      existingItem.quantity += item.quantity;
-                    }
-                  }
-
-                  setState(() {
-                    _shoppingList = null;
-                  });
-
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Items added to cart'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Add All to Cart'),
-              ),
-            ],
-          ),
-    );
   }
 }
 
@@ -2960,7 +2927,8 @@ class _ActivityPageState extends State<ActivityPage> {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
         monthlyUsage[purchase.date.month] =
             (monthlyUsage[purchase.date.month] ?? 0) +
-            purchase.items.values.fold(0, (sum, quantity) => sum + quantity);
+                purchase.items.values
+                    .fold(0, (sum, quantity) => sum + quantity);
       }
     }
 
@@ -3094,7 +3062,7 @@ class _ActivityPageState extends State<ActivityPage> {
                   height: 200,
                   child: LineChart(
                     LineChartData(
-                      gridData: FlGridData(show: false),
+                      gridData: const FlGridData(show: false),
                       titlesData: FlTitlesData(
                         show: true,
                         bottomTitles: AxisTitles(
@@ -3132,28 +3100,27 @@ class _ActivityPageState extends State<ActivityPage> {
                             },
                           ),
                         ),
-                        rightTitles: AxisTitles(
+                        rightTitles: const AxisTitles(
                           sideTitles: SideTitles(showTitles: false),
                         ),
-                        topTitles: AxisTitles(
+                        topTitles: const AxisTitles(
                           sideTitles: SideTitles(showTitles: false),
                         ),
                       ),
                       borderData: FlBorderData(show: false),
                       lineBarsData: [
                         LineChartBarData(
-                          spots:
-                              monthlyUsage.asMap().entries.map((entry) {
-                                return FlSpot(
-                                  entry.key.toDouble(),
-                                  entry.value,
-                                );
-                              }).toList(),
+                          spots: monthlyUsage.asMap().entries.map((entry) {
+                            return FlSpot(
+                              entry.key.toDouble(),
+                              entry.value,
+                            );
+                          }).toList(),
                           isCurved: true,
                           color: Colors.blue,
                           barWidth: 3,
                           isStrokeCapRound: true,
-                          dotData: FlDotData(show: true),
+                          dotData: const FlDotData(show: true),
                           belowBarData: BarAreaData(
                             show: true,
                             color: Colors.blue.withOpacity(0.1),
@@ -3238,32 +3205,30 @@ class _ActivityPageState extends State<ActivityPage> {
                             },
                           ),
                         ),
-                        rightTitles: AxisTitles(
+                        rightTitles: const AxisTitles(
                           sideTitles: SideTitles(showTitles: false),
                         ),
-                        topTitles: AxisTitles(
+                        topTitles: const AxisTitles(
                           sideTitles: SideTitles(showTitles: false),
                         ),
                       ),
-                      gridData: FlGridData(show: false),
+                      gridData: const FlGridData(show: false),
                       borderData: FlBorderData(show: false),
-                      barGroups:
-                          monthlyRestocks.asMap().entries.map((entry) {
-                            return BarChartGroupData(
-                              x: entry.key,
-                              barRods: [
-                                BarChartRodData(
-                                  toY: entry.value,
-                                  color:
-                                      entry.key == monthlyRestocks.length - 1
-                                          ? Colors.green
-                                          : Colors.grey.withAlpha(51),
-                                  width: 20,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                              ],
-                            );
-                          }).toList(),
+                      barGroups: monthlyRestocks.asMap().entries.map((entry) {
+                        return BarChartGroupData(
+                          x: entry.key,
+                          barRods: [
+                            BarChartRodData(
+                              toY: entry.value,
+                              color: entry.key == monthlyRestocks.length - 1
+                                  ? Colors.green
+                                  : Colors.grey.withAlpha(51),
+                              width: 20,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ],
+                        );
+                      }).toList(),
                     ),
                   ),
                 ),
@@ -3336,53 +3301,52 @@ class _EventsPageState extends State<EventsPage> {
   void _showDateConfirmationDialog(DateTime date) {
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Set Shopping Date'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Selected Date: ${DateFormat('MMMM dd, yyyy').format(date)}',
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _noteController,
-                  decoration: const InputDecoration(
-                    labelText: 'Add a note (optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-              ],
+      builder: (context) => AlertDialog(
+        title: const Text('Set Shopping Date'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Selected Date: ${DateFormat('MMMM dd, yyyy').format(date)}',
+              style: const TextStyle(fontSize: 16),
             ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _noteController.clear();
-                },
-                child: const Text('Cancel'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _noteController,
+              decoration: const InputDecoration(
+                labelText: 'Add a note (optional)',
+                border: OutlineInputBorder(),
               ),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _shoppingDates[date] = true;
-                  });
-                  Navigator.pop(context);
-                  _showConfirmationSnackBar(date);
-                  _noteController.clear();
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Set Date'),
-              ),
-            ],
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _noteController.clear();
+            },
+            child: const Text('Cancel'),
           ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _shoppingDates[date] = true;
+              });
+              Navigator.pop(context);
+              _showConfirmationSnackBar(date);
+              _noteController.clear();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Set Date'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3410,44 +3374,43 @@ class _EventsPageState extends State<EventsPage> {
   void _showShoppingReminderDialog(DateTime date) {
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Shopping Reminder'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.shopping_cart, size: 48, color: Colors.green),
-                const SizedBox(height: 16),
-                Text(
-                  'Your set date is coming up, would you like the system to set the next date automatically?',
-                  style: const TextStyle(fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              ],
+      builder: (context) => AlertDialog(
+        title: const Text('Shopping Reminder'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shopping_cart, size: 48, color: Colors.green),
+            SizedBox(height: 16),
+            Text(
+              'Your set date is coming up, would you like the system to set the next date automatically?',
+              style: TextStyle(fontSize: 16),
+              textAlign: TextAlign.center,
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('NO'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  // Set next month's date
-                  final nextMonth = date.add(const Duration(days: 30));
-                  setState(() {
-                    _shoppingDates[nextMonth] = true;
-                  });
-                  Navigator.pop(context);
-                  _showConfirmationSnackBar(nextMonth);
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('YES'),
-              ),
-            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('NO'),
           ),
+          ElevatedButton(
+            onPressed: () {
+              // Set next month's date
+              final nextMonth = date.add(const Duration(days: 30));
+              setState(() {
+                _shoppingDates[nextMonth] = true;
+              });
+              Navigator.pop(context);
+              _showConfirmationSnackBar(nextMonth);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('YES'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3465,10 +3428,9 @@ class _EventsPageState extends State<EventsPage> {
           child: TextField(
             readOnly: true,
             decoration: InputDecoration(
-              labelText:
-                  _selectedDate == null
-                      ? 'Select a date'
-                      : DateFormat('MM/dd/yyyy').format(_selectedDate!),
+              labelText: _selectedDate == null
+                  ? 'Select a date'
+                  : DateFormat('MM/dd/yyyy').format(_selectedDate!),
               border: const OutlineInputBorder(),
               suffixIcon: const Icon(Icons.calendar_today),
             ),
@@ -3496,17 +3458,16 @@ class _EventsPageState extends State<EventsPage> {
                 margin: const EdgeInsets.only(bottom: 12),
                 child: ListTile(
                   leading: const Icon(Icons.shopping_bag, color: Colors.green),
-                  title: Text(
+                  title: const Text(
                     'Shopping Day',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
                     DateFormat('MMMM dd, yyyy').format(date),
                     style: TextStyle(
-                      color:
-                          date.isBefore(DateTime.now())
-                              ? Colors.red
-                              : Colors.green,
+                      color: date.isBefore(DateTime.now())
+                          ? Colors.red
+                          : Colors.green,
                     ),
                   ),
                   trailing: IconButton(
@@ -3545,12 +3506,431 @@ void navigateWithFade(BuildContext context, Widget page) {
     PageRouteBuilder(
       pageBuilder: (context, animation, secondaryAnimation) => page,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        return FadeTransition(
-          opacity: animation,
-          child: child,
-        );
+        return FadeTransition(opacity: animation, child: child);
       },
       transitionDuration: const Duration(milliseconds: 400),
     ),
   );
+}
+
+class EditProfilePage extends StatefulWidget {
+  const EditProfilePage({super.key});
+
+  @override
+  State<EditProfilePage> createState() => _EditProfilePageState();
+}
+
+class _EditProfilePageState extends State<EditProfilePage> {
+  final _formKey = GlobalKey<FormState>();
+  final _fullNameController = TextEditingController();
+  final _authService = AuthService();
+  bool _isLoading = false;
+  String? _photoURL;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      setState(() {
+        _fullNameController.text = user.displayName ?? '';
+        _photoURL = user.photoURL;
+      });
+    }
+  }
+
+  Future<void> _handleUpdateProfile() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() => _isLoading = true);
+
+      try {
+        final success = await _authService.updateProfile(
+          _fullNameController.text.trim(),
+          _photoURL,
+        );
+
+        if (!mounted) return;
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated successfully')),
+          );
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}')),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Edit Profile'),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(height: 20),
+              // Profile Picture
+              CircleAvatar(
+                radius: 50,
+                backgroundImage:
+                    _photoURL != null ? NetworkImage(_photoURL!) : null,
+                child: _photoURL == null
+                    ? const Icon(Icons.person, size: 50)
+                    : null,
+              ),
+              const SizedBox(height: 20),
+              // Full Name Field
+              TextFormField(
+                controller: _fullNameController,
+                decoration: const InputDecoration(
+                  labelText: 'Full Name',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter your full name';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 24),
+              // Update Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _handleUpdateProfile,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('Update Profile'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    super.dispose();
+  }
+}
+
+class SettingsPage extends StatelessWidget {
+  final AuthService _authService = AuthService();
+
+  SettingsPage({super.key});
+
+  Future<void> _launchEmail(BuildContext context) async {
+    final Uri emailLaunchUri = Uri(
+      scheme: 'mailto',
+      path: 'support@restckr.com',
+      queryParameters: {
+        'subject': 'ReStckr Support Request',
+        'body': 'Hello ReStckr Support Team,\n\nI need assistance with:',
+      },
+    );
+
+    try {
+      final String emailUrl = emailLaunchUri.toString();
+      if (await canLaunchUrl(Uri.parse(emailUrl))) {
+        await launchUrl(Uri.parse(emailUrl));
+      } else {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not launch email client'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error launching email: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _handleLogout(BuildContext context) async {
+    try {
+      await _authService.signOut();
+      if (!context.mounted) return;
+      Navigator.pushReplacementNamed(context, '/');
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error signing out: ${e.toString()}')),
+      );
+    }
+  }
+
+  Future<void> _handleDeleteAccount(BuildContext context) async {
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete Account'),
+          content: const Text(
+            'Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently deleted.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed == true) {
+        // Show loading dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+
+        await _authService.deleteAccount();
+
+        if (!context.mounted) return;
+        
+        // Close loading dialog
+        Navigator.pop(context);
+        
+        // Show success message and navigate to login
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Account deleted successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        Navigator.pushReplacementNamed(context, '/');
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      
+      // Close loading dialog if it's open
+      Navigator.pop(context);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting account: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+      ),
+      body: ListView(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.person_outline, color: Colors.blue),
+            title: const Text('Edit Profile'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const EditProfilePage()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.privacy_tip, color: Colors.green),
+            title: const Text('Privacy Policy'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const PrivacyPolicyPage()),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
+            title: const Text('About'),
+            onTap: () {
+              showAboutDialog(
+                context: context,
+                applicationName: 'ReStckr',
+                applicationVersion: '1.0.0',
+                applicationLegalese: 'Developed by Your Name',
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.support_agent, color: Colors.teal),
+            title: const Text('Contact Support'),
+            onTap: () => _launchEmail(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.red),
+            title: const Text('Delete Account'),
+            onTap: () => _handleDeleteAccount(context),
+          ),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Logout'),
+            onTap: () => _handleLogout(context),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class PrivacyPolicyPage extends StatelessWidget {
+  const PrivacyPolicyPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Privacy Policy'),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Privacy Policy',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Last updated: March 2024',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _buildSection(
+              'Information We Collect',
+              'We collect information that you provide directly to us, including:\n\n'
+                  '• Account information (name, email address)\n'
+                  '• Shopping lists and preferences\n'
+                  '• Purchase history\n'
+                  '• Device information',
+            ),
+            _buildSection(
+              'How We Use Your Information',
+              'We use the information we collect to:\n\n'
+                  '• Provide and maintain our services\n'
+                  '• Process your transactions\n'
+                  '• Send you notifications about your shopping lists\n'
+                  '• Improve our services\n'
+                  '• Communicate with you about updates and changes',
+            ),
+            _buildSection(
+              'Data Security',
+              'We implement appropriate security measures to protect your personal information. However, no method of transmission over the Internet is 100% secure.',
+            ),
+            _buildSection(
+              'Your Rights',
+              'You have the right to:\n\n'
+                  '• Access your personal information\n'
+                  '• Correct inaccurate data\n'
+                  '• Request deletion of your data\n'
+                  '• Opt-out of communications',
+            ),
+            _buildSection(
+              'Contact Us',
+              'If you have any questions about this Privacy Policy, please contact us at:\n\n'
+                  'Email: support@restckr.com',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, String content) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            content,
+            style: const TextStyle(
+              fontSize: 16,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
