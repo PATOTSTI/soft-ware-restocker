@@ -12,6 +12,7 @@ import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:restockr/wrapper.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,8 +32,8 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
+      home: const Wrapper(),
       routes: {
-        '/': (context) => const LoginPage(),
         '/signup': (context) => const SignUpPage(),
         '/forgot-password': (context) => const ForgotPasswordPage(),
         '/home': (context) => const HomePage(),
