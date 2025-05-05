@@ -14,7 +14,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform,);
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(const MyApp());
 }
 
@@ -43,32 +43,34 @@ class MyApp extends StatelessWidget {
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   Future<bool> signInWithEmailAndPassword(String email, String password) async {
-  try {
-    await _auth.signInWithEmailAndPassword(email: email,password: password,);
-    return true;
-  } on FirebaseAuthException catch (e) {
-    if (e.code == 'user-not-found') {
-      throw Exception('No user found for that email.');
-    } else if (e.code == 'wrong-password') {
-      throw Exception('Wrong password provided.');
-    } else {
-      throw Exception(e.message ?? 'Authentication failed');
+    try {
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return true;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found') {
+        throw Exception('No user found for that email.');
+      } else if (e.code == 'wrong-password') {
+        throw Exception('Wrong password provided.');
+      } else {
+        throw Exception(e.message ?? 'Authentication failed');
+      }
+    } catch (e) {
+      throw Exception('An unknown error occurred');
     }
-  } catch (e) {
-    throw Exception('An unknown error occurred');
   }
-}
 
   Future<bool> signInWithGoogle() async {
     try {
       final GoogleSignIn googleSignIn = GoogleSignIn(
         scopes: ['email', 'profile'],
       );
-      
+
       // Check if user is already signed in
-      final GoogleSignInAccount? currentUser = await googleSignIn.signInSilently();
+      final GoogleSignInAccount? currentUser =
+          await googleSignIn.signInSilently();
       if (currentUser != null) {
-        final GoogleSignInAuthentication googleAuth = await currentUser.authentication;
+        final GoogleSignInAuthentication googleAuth =
+            await currentUser.authentication;
         final credential = GoogleAuthProvider.credential(
           accessToken: googleAuth.accessToken,
           idToken: googleAuth.idToken,
@@ -83,7 +85,8 @@ class AuthService {
         throw Exception('Google sign-in cancelled');
       }
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
@@ -99,32 +102,34 @@ class AuthService {
   }
 
   Future<bool> signInWithFacebook() async {
-  try {
-    final LoginResult result = await FacebookAuth.instance.login(permissions: ['email','public_profile'],);
-    if (result.status == LoginStatus.success) {
-      final OAuthCredential facebookAuthCredential =
-          FacebookAuthProvider.credential(result.accessToken!.token);
-      await _auth.signInWithCredential(facebookAuthCredential);
-      return true;
-    } else {
-      throw Exception('Facebook sign-in cancelled');
+    try {
+      final LoginResult result = await FacebookAuth.instance.login(
+        permissions: ['email', 'public_profile'],
+      );
+      if (result.status == LoginStatus.success) {
+        final OAuthCredential facebookAuthCredential =
+            FacebookAuthProvider.credential(result.accessToken!.token);
+        await _auth.signInWithCredential(facebookAuthCredential);
+        return true;
+      } else {
+        throw Exception('Facebook sign-in cancelled');
+      }
+    } catch (e) {
+      throw Exception('Failed to sign in with Facebook: ${e.toString()}');
     }
-  } catch (e) {
-    throw Exception('Failed to sign in with Facebook: ${e.toString()}');
   }
-}
 
- Future<bool> resetPassword(String email) async {
-  if (!EmailValidator.validate(email)) {
-    throw Exception('Invalid email format');
+  Future<bool> resetPassword(String email) async {
+    if (!EmailValidator.validate(email)) {
+      throw Exception('Invalid email format');
+    }
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      return true;
+    } catch (e) {
+      throw Exception('Failed to send password reset email');
+    }
   }
-  try {
-    await _auth.sendPasswordResetEmail(email: email);
-    return true;
-  } catch (e) {
-    throw Exception('Failed to send password reset email');
-  }
-}
 
   Future<bool> signUp(String email, String password, String fullName) async {
     if (!EmailValidator.validate(email)) {
@@ -138,10 +143,8 @@ class AuthService {
     }
 
     try {
-      final UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final UserCredential userCredential = await _auth
+          .createUserWithEmailAndPassword(email: email, password: password);
 
       // Optionally update user display name
       await userCredential.user?.updateDisplayName(fullName);
@@ -250,221 +253,248 @@ class _LoginPageState extends State<LoginPage> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const SizedBox(height: 60),
-                // Logo
-                Image.asset(
-                  'lib/asset/logo.png',
-                  width: 80,
-                  height: 80,
-                  errorBuilder:
-                      (context, error, stackTrace) => const Icon(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).size.height * 0.08,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 20),
+                    // Logo
+                    Image.asset(
+                      'lib/assets/logo.png',
+                      width: 80,
+                      height: 80,
+                      errorBuilder: (context, error, stackTrace) => const Icon(
                         Icons.shopping_bag_outlined,
                         size: 60,
                         color: Colors.white,
                       ),
-                ),
-                const SizedBox(height: 16),
-                // App Name
-                const Text(
-                  'ReStckr',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Your companion in everyday shopping.',
-                  style: TextStyle(fontSize: 16, color: Colors.white70),
-                ),
-                const SizedBox(height: 40),
-                // Login Form
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        'Log in to access your grocery lists\nand more.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 16, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 16),
+                    // App Name
+                    const Text(
+                      'ReStckr',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
-                      const SizedBox(height: 24),
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        autofocus: true,
-                        textInputAction: TextInputAction.done,
-                        onTap: () {
-                          _emailController
-                              .selection = TextSelection.fromPosition(
-                            TextPosition(offset: _emailController.text.length),
-                          );
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Your companion in everyday shopping.',
+                      style: TextStyle(fontSize: 16, color: Colors.white70),
+                    ),
+                    const SizedBox(height: 20),
+                    // Login Form
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 10,
+                            offset: const Offset(0, 5),
                           ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your email';
-                          }
-                          if (!EmailValidator.validate(value)) {
-                            return 'Please enter a valid email';
-                          }
-                          return null;
-                        },
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      // Password Field
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        textInputAction: TextInputAction.done,
-                        onTap: () {
-                          _passwordController
-                              .selection = TextSelection.fromPosition(
-                            TextPosition(
-                              offset: _passwordController.text.length,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Log in to access your grocery lists\nand more.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.black87,
                             ),
-                          );
-                        },
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          border: const OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(8)),
                           ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
+                          const SizedBox(height: 24),
+                          // Email Field
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            autofocus: true,
+                            textInputAction: TextInputAction.done,
+                            onTap: () {
+                              _emailController
+                                  .selection = TextSelection.fromPosition(
+                                TextPosition(
+                                  offset: _emailController.text.length,
+                                ),
+                              );
+                            },
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.all(
+                                  Radius.circular(8),
+                                ),
+                              ),
                             ),
-                            onPressed: () {
-    setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter your email';
+                              }
+                              if (!EmailValidator.validate(value)) {
+                                return 'Please enter a valid email';
+                              }
+                              return null;
                             },
                           ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
-                          }
-                          if (value.length < 6) {
-                            return 'Password must be at least 6 characters';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      // Login Button
-                      ElevatedButton(
-                        onPressed: _isLoading ? null : _handleLogin,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child:
-                            _isLoading
-                                ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                                : const Text('LOGIN'),
-                      ),
-                      const SizedBox(height: 16),
-                      // Forgot Password
-                      Center(
-                        child: TextButton(
-                          onPressed:
-                              () => Navigator.pushNamed(
-                                context,
-                                '/forgot-password',
+                          const SizedBox(height: 16),
+                          // Password Field
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            textInputAction: TextInputAction.done,
+                            onTap: () {
+                              _passwordController
+                                  .selection = TextSelection.fromPosition(
+                                TextPosition(
+                                  offset: _passwordController.text.length,
+                                ),
+                              );
+                            },
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              border: const OutlineInputBorder(
+                                borderRadius: BorderRadius.all(
+                                  Radius.circular(8),
+                                ),
                               ),
-                          child: const Text(
-                            'Forgot password?',
-                            style: TextStyle(color: Colors.orange),
-                          ),
-                        ),
-                      ),
-                      // Sign Up Link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text("Don't have an account?"),
-                          TextButton(
-                            onPressed:
-                                () => Navigator.pushNamed(context, '/signup'),
-                            child: const Text(
-                              'Sign up',
-                              style: TextStyle(color: Colors.orange),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
                             ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Please enter your password';
+                              }
+                              if (value.length < 6) {
+                                return 'Password must be at least 6 characters';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                          // Login Button
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _handleLogin,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child:
+                                _isLoading
+                                    ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.white,
+                                            ),
+                                      ),
+                                    )
+                                    : const Text('LOGIN'),
+                          ),
+                          const SizedBox(height: 16),
+                          // Forgot Password
+                          Center(
+                            child: TextButton(
+                              onPressed:
+                                  () => Navigator.pushNamed(
+                                    context,
+                                    '/forgot-password',
+                                  ),
+                              child: const Text(
+                                'Forgot password?',
+                                style: TextStyle(color: Colors.orange),
+                              ),
+                            ),
+                          ),
+                          // Sign Up Link
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text("Don't have an account?"),
+                              TextButton(
+                                onPressed: () => navigateWithFade(context, const SignUpPage()),
+                                child: const Text(
+                                  'Sign up',
+                                  style: TextStyle(color: Colors.orange),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // Social Login Divider
+                          const Row(
+                            children: [
+                              Expanded(child: Divider()),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16),
+                                child: Text('Sign in with'),
+                              ),
+                              Expanded(child: Divider()),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // Social Login Buttons
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                onPressed:
+                                    _isLoading ? null : _handleFacebookSignIn,
+                                icon: const FaIcon(
+                                  FontAwesomeIcons.facebook,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              IconButton(
+                                onPressed:
+                                    _isLoading ? null : _handleGoogleSignIn,
+                                icon: const FaIcon(
+                                  FontAwesomeIcons.google,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      // Social Login Divider
-                      const Row(
-                        children: [
-                          Expanded(child: Divider()),
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text('Sign in with'),
-                          ),
-                          Expanded(child: Divider()),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Social Login Buttons
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            onPressed:
-                                _isLoading ? null : _handleFacebookSignIn,
-                            icon: const FaIcon(
-                              FontAwesomeIcons.facebook,
-                              color: Colors.blue,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          IconButton(
-                            onPressed: _isLoading ? null : _handleGoogleSignIn,
-                            icon: const FaIcon(
-                              FontAwesomeIcons.google,
-                              color: Colors.red,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -528,225 +558,244 @@ class _SignUpPageState extends State<SignUpPage> {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = Colors.orange; // Use your app's accent color
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 20),
-                // User Icon
-                Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.green, width: 2),
-                    ),
-                    child: const Icon(
-                      Icons.person_outline,
-                      size: 40,
-                      color: Colors.green,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Sign Up Text
-                const Center(
-                  child: Text(
-                    'Sign Up',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Center(
-                  child: Text(
-                    'Create your account',
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                // Full Name Field
-                TextFormField(
-                  controller: _fullNameController,
-                  autofocus: true,
-                  textInputAction: TextInputAction.next,
-                  onTap: () {
-                    _fullNameController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: _fullNameController.text.length),
-                    );
-                  },
-                  decoration: const InputDecoration(
-                    labelText: 'Full name',
-                    border: UnderlineInputBorder(),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your full name';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Email Field
-                TextFormField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  autofocus: true,
-                  textInputAction: TextInputAction.done,
-                  onTap: () {
-                    _emailController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: _emailController.text.length),
-                    );
-                  },
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(8)),
-                    ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter your email';
-                    }
-                    if (!EmailValidator.validate(value)) {
-                      return 'Please enter a valid email';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Password Field
-                TextFormField(
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  textInputAction: TextInputAction.next,
-                  onTap: () {
-                    _passwordController.selection = TextSelection.fromPosition(
-                      TextPosition(offset: _passwordController.text.length),
-                    );
-                  },
-                  decoration: InputDecoration(
-                    labelText: 'Password',
-                    border: const UnderlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: Colors.grey,
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.only(
+                top: MediaQuery.of(context).size.height * 0.08,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // User Icon
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black12, width: 2),
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _obscurePassword = !_obscurePassword;
-                        });
+                      child: const Icon(
+                        Icons.person_outline,
+                        size: 60,
+                        color: Colors.black38,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Sign Up Text
+                    const Text(
+                      'Sign Up',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Create your account',
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 32),
+                    // Full Name Field
+                    TextFormField(
+                      controller: _fullNameController,
+                      autofocus: true,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Full name',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                        enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.black12),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: accentColor, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your full name';
+                        }
+                        return null;
                       },
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter a password';
-                    }
-                    if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Confirm Password Field
-                TextFormField(
-                  controller: _confirmPasswordController,
-                  obscureText: _obscureConfirmPassword,
-                  textInputAction: TextInputAction.done,
-                  onTap: () {
-                    _confirmPasswordController
-                        .selection = TextSelection.fromPosition(
-                      TextPosition(
-                        offset: _confirmPasswordController.text.length,
+                    const SizedBox(height: 8),
+                    // Email Field
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                        enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.black12),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: accentColor, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
                       ),
-                    );
-                  },
-                  decoration: InputDecoration(
-                    labelText: 'Confirm your password',
-                    border: const UnderlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _obscureConfirmPassword
-                            ? Icons.visibility_off
-                            : Icons.visibility,
-                        color: Colors.grey,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _obscureConfirmPassword = !_obscureConfirmPassword;
-                        });
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter your email';
+                        }
+                        if (!EmailValidator.validate(value)) {
+                          return 'Please enter a valid email';
+                        }
+                        return null;
                       },
                     ),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please confirm your password';
-                    }
-                    if (value != _passwordController.text) {
-                      return 'Passwords do not match';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 32),
-                // Sign Up Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : _handleSignUp,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child:
-                        _isLoading
-                            ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                            )
-                            : const Text('SIGN UP'),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                // Login Link
-                Center(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('Already have an account?'),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text(
-                          'Login',
-                          style: TextStyle(color: Colors.orange),
+                    const SizedBox(height: 8),
+                    // Password Field
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _obscurePassword,
+                      textInputAction: TextInputAction.next,
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                        enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.black12),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: accentColor, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: accentColor,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
                         ),
                       ),
-                    ],
-                  ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter a password';
+                        }
+                        if (value.length < 6) {
+                          return 'Password must be at least 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    // Confirm Password Field
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: _obscureConfirmPassword,
+                      textInputAction: TextInputAction.done,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm your password',
+                        labelStyle: const TextStyle(color: Colors.grey),
+                        border: InputBorder.none,
+                        enabledBorder: const UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.black12),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: accentColor, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: accentColor,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscureConfirmPassword = !_obscureConfirmPassword;
+                            });
+                          },
+                        ),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please confirm your password';
+                        }
+                        if (value != _passwordController.text) {
+                          return 'Passwords do not match';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    // Sign Up Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _handleSignUp,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          elevation: 2,
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : const Text(
+                                'SIGN UP',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Login Link
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text('Already have an account?'),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: Text(
+                            'Login',
+                            style: TextStyle(
+                              color: accentColor,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -783,7 +832,9 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       setState(() => _isLoading = true);
 
       try {
-        final success = await _authService.resetPassword(_emailController.text.trim());
+        final success = await _authService.resetPassword(
+          _emailController.text.trim(),
+        );
 
         if (!mounted) return;
         if (success) {
@@ -805,83 +856,196 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
       appBar: AppBar(
         title: const Text('Reset Password'),
         backgroundColor: Colors.transparent,
         elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-        child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 40),
-                if (_emailSent)
-                  const Center(
-                    child: Text(
-                      'Password reset instructions have been sent to your email.',
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 500,
+              maxHeight:
+                  MediaQuery.of(context).size.height -
+                  MediaQuery.of(context).padding.top -
+                  MediaQuery.of(context).padding.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(height: 20),
+                    // Icon
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.lock_reset,
+                        size: 40,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Title
+                    const Text(
+                      'Reset Password',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Enter your email address and we\'ll send you instructions to reset your password.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16),
+                      style: TextStyle(fontSize: 16, color: Colors.white70),
                     ),
-                  )
-                else ...[
-                  const Text(
-                    'Enter your email address and we\'ll send you instructions to reset your password.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(height: 24),
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    autofocus: true,
-                    textInputAction: TextInputAction.done,
-                    onTap: () {
-                      _emailController.selection = TextSelection.fromPosition(
-                        TextPosition(offset: _emailController.text.length),
-                      );
-                    },
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!EmailValidator.validate(value)) {
-                        return 'Please enter a valid email';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: _isLoading ? null : _handleResetPassword,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child:
-                        _isLoading
-                            ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
+                    const SizedBox(height: 32),
+                    if (_emailSent)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.check_circle_outline,
+                              size: 48,
+                              color: Colors.green,
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Check Your Email',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Password reset instructions have been sent to your email.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            ElevatedButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.black,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 32,
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
                               ),
-                            )
-                            : const Text('SEND RESET LINK'),
-                  ),
-                ],
-              ],
+                              child: const Text('Back to Login'),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextFormField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              autofocus: true,
+                              textInputAction: TextInputAction.done,
+                              decoration: const InputDecoration(
+                                labelText: 'Email',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.all(
+                                    Radius.circular(8),
+                                  ),
+                                ),
+                              ),
+                              validator: (value) {
+                                if (value == null || value.isEmpty) {
+                                  return 'Please enter your email';
+                                }
+                                if (!EmailValidator.validate(value)) {
+                                  return 'Please enter a valid email';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 24),
+                            ElevatedButton(
+                              onPressed:
+                                  _isLoading ? null : _handleResetPassword,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.black,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              child:
+                                  _isLoading
+                                      ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                        ),
+                                      )
+                                      : const Text('SEND RESET LINK'),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
@@ -965,12 +1129,14 @@ class _HomePageState extends State<HomePage> {
               if (!_cartItems.containsKey(section)) {
                 _cartItems[section] = [];
               }
-              _cartItems[section]!.add(CartItem(
-                name: entry['name'],
-                quantity: entry['quantity'],
-                price: (entry['price'] as num).toDouble(),
-                section: section,
-              ));
+              _cartItems[section]!.add(
+                CartItem(
+                  name: entry['name'],
+                  quantity: entry['quantity'],
+                  price: (entry['price'] as num).toDouble(),
+                  section: section,
+                ),
+              );
             }
           });
         }
@@ -994,12 +1160,23 @@ class _HomePageState extends State<HomePage> {
 
       var existingItem = _cartItems[section]!.firstWhere(
         (item) => item.name == itemName,
-        orElse: () => CartItem(name: itemName, quantity: 0, price: price, section: section),
+        orElse:
+            () => CartItem(
+              name: itemName,
+              quantity: 0,
+              price: price,
+              section: section,
+            ),
       );
 
       if (existingItem.quantity == 0) {
         // New item
-        existingItem = CartItem(name: itemName, quantity: 1, price: price, section: section);
+        existingItem = CartItem(
+          name: itemName,
+          quantity: 1,
+          price: price,
+          section: section,
+        );
         _cartItems[section]!.add(existingItem);
       } else {
         // Existing item
@@ -1018,7 +1195,12 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _handleQuantityChange(String section, String itemName, int newQuantity, double price) {
+  void _handleQuantityChange(
+    String section,
+    String itemName,
+    int newQuantity,
+    double price,
+  ) {
     setState(() {
       // Find or create the section
       if (!_cartItems.containsKey(section)) {
@@ -1027,14 +1209,16 @@ class _HomePageState extends State<HomePage> {
 
       // Find the item in cart items
       final cartSection = _cartItems[section]!;
-      final existingItemIndex = cartSection.indexWhere((item) => item.name == itemName);
-      
+      final existingItemIndex = cartSection.indexWhere(
+        (item) => item.name == itemName,
+      );
+
       if (existingItemIndex != -1) {
         // Update existing item
         final item = cartSection[existingItemIndex];
         item.quantity = newQuantity;
         item.price = price;
-        
+
         // If quantity is 0, remove from cart
         if (newQuantity == 0) {
           cartSection.removeAt(existingItemIndex);
@@ -1044,12 +1228,14 @@ class _HomePageState extends State<HomePage> {
         }
       } else if (newQuantity > 0) {
         // Add new item
-        cartSection.add(CartItem(
-          name: itemName,
-          quantity: newQuantity,
-          price: price,
-          section: section,
-        ));
+        cartSection.add(
+          CartItem(
+            name: itemName,
+            quantity: newQuantity,
+            price: price,
+            section: section,
+          ),
+        );
       }
       _saveCartToFirestore(); // Save cart after change
     });
@@ -1092,33 +1278,34 @@ class _HomePageState extends State<HomePage> {
     // Show confirmation dialog
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Purchase Confirmed'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Purchase Confirmed'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('Items purchased:'),
+                const SizedBox(height: 4),
+                ...purchasedItems.entries.map(
+                  (entry) => Text('• ${entry.key} (${entry.value}x)'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            const Text('Items purchased:'),
-            const SizedBox(height: 4),
-            ...purchasedItems.entries.map(
-              (entry) => Text('• ${entry.key} (${entry.value}x)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('OK'),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text('OK'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1143,6 +1330,109 @@ class _HomePageState extends State<HomePage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            ListTile(
+              leading: const Icon(Icons.person_outline, color: Colors.blue),
+              title: const Text('Edit Profile'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Implement Edit Profile functionality
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Edit Profile tapped')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.brightness_6, color: Colors.amber),
+              title: const Text('Change Theme'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Implement Theme Toggle
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Change Theme tapped')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.notifications_active, color: Colors.deepPurple),
+              title: const Text('Notifications'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Implement Notifications Toggle
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Notifications tapped')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.privacy_tip, color: Colors.green),
+              title: const Text('Privacy Policy'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Show Privacy Policy
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Privacy Policy tapped')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
+              title: const Text('About'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Show About Dialog
+                showAboutDialog(
+                  context: context,
+                  applicationName: 'ReStckr',
+                  applicationVersion: '1.0.0',
+                  applicationLegalese: 'Developed by Your Name',
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.support_agent, color: Colors.teal),
+              title: const Text('Contact Support'),
+              onTap: () {
+                Navigator.pop(context);
+                // TODO: Implement Contact Support (e.g., open email)
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Contact Support tapped')),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.red),
+              title: const Text('Delete Account'),
+              onTap: () {
+                Navigator.pop(context);
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Delete Account'),
+                    content: const Text('Are you sure you want to delete your account? This action cannot be undone.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          // TODO: Implement Delete Account
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Account deletion not implemented.')),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text('Logout'),
@@ -1275,11 +1565,13 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _purchaseHistory.clear();
           for (var entry in historyList) {
-            _purchaseHistory.add(PurchaseHistory(
-              date: DateTime.parse(entry['date']),
-              amount: (entry['amount'] as num).toDouble(),
-              items: Map<String, int>.from(entry['items'] ?? {}),
-            ));
+            _purchaseHistory.add(
+              PurchaseHistory(
+                date: DateTime.parse(entry['date']),
+                amount: (entry['amount'] as num).toDouble(),
+                items: Map<String, int>.from(entry['items'] ?? {}),
+              ),
+            );
           }
         });
       }
@@ -1297,11 +1589,16 @@ class _HomePageState extends State<HomePage> {
           .doc(user.uid)
           .collection('activity')
           .doc('purchase_history');
-      final historyList = _purchaseHistory.map((purchase) => {
-        'date': purchase.date.toIso8601String(),
-        'amount': purchase.amount,
-        'items': purchase.items,
-      }).toList();
+      final historyList =
+          _purchaseHistory
+              .map(
+                (purchase) => {
+                  'date': purchase.date.toIso8601String(),
+                  'amount': purchase.amount,
+                  'items': purchase.items,
+                },
+              )
+              .toList();
       await docRef.set({'history': historyList});
     } catch (e) {
       // Optionally show error
@@ -1325,12 +1622,17 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _cartItems.clear();
           data.forEach((section, items) {
-            _cartItems[section] = List<Map<String, dynamic>>.from(items).map((item) => CartItem(
-              name: item['name'],
-              quantity: item['quantity'],
-              price: (item['price'] as num).toDouble(),
-              section: section,
-            )).toList();
+            _cartItems[section] =
+                List<Map<String, dynamic>>.from(items)
+                    .map(
+                      (item) => CartItem(
+                        name: item['name'],
+                        quantity: item['quantity'],
+                        price: (item['price'] as num).toDouble(),
+                        section: section,
+                      ),
+                    )
+                    .toList();
           });
         });
       }
@@ -1360,8 +1662,15 @@ class _HomePageState extends State<HomePage> {
 class StocksPage extends StatefulWidget {
   final Map<String, List<CartItem>> cartItems;
   final Function(String section, String itemName, double price) onAddToCart;
-  final Function(String section, String itemName, int newQuantity, double price)? onQuantityChange;
-  final Function(Map<String, List<CartItem>>)? onStockUpdate; // Add this callback
+  final Function(
+    String section,
+    String itemName,
+    int newQuantity,
+    double price,
+  )?
+  onQuantityChange;
+  final Function(Map<String, List<CartItem>>)?
+  onStockUpdate; // Add this callback
 
   const StocksPage({
     super.key,
@@ -1442,12 +1751,17 @@ class _StocksPageState extends State<StocksPage> {
     // Convert and notify parent immediately
     Map<String, List<CartItem>> updatedStock = {};
     _sectionItems.forEach((section, items) {
-      updatedStock[section] = items.map((item) => CartItem(
-        name: item['name'],
-        quantity: item['quantity'],
-        price: item['price'],
-        section: section,
-      )).toList();
+      updatedStock[section] =
+          items
+              .map(
+                (item) => CartItem(
+                  name: item['name'],
+                  quantity: item['quantity'],
+                  price: item['price'],
+                  section: section,
+                ),
+              )
+              .toList();
     });
 
     // Notify parent about stock update immediately
@@ -1457,7 +1771,7 @@ class _StocksPageState extends State<StocksPage> {
 
     // Save to Firebase in the background
     await _saveStockData();
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1519,19 +1833,23 @@ class _StocksPageState extends State<StocksPage> {
           .doc('stock_data');
 
       await docRef.set({
-        for (var entry in _sectionItems.entries)
-          entry.key: entry.value,
+        for (var entry in _sectionItems.entries) entry.key: entry.value,
       });
 
       // Convert _sectionItems to CartItems format and notify parent
       Map<String, List<CartItem>> updatedStock = {};
       _sectionItems.forEach((section, items) {
-        updatedStock[section] = items.map((item) => CartItem(
-          name: item['name'],
-          quantity: item['quantity'],
-          price: item['price'],
-          section: section,
-        )).toList();
+        updatedStock[section] =
+            items
+                .map(
+                  (item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: item['price'],
+                    section: section,
+                  ),
+                )
+                .toList();
       });
 
       // Notify parent about stock update
@@ -1557,7 +1875,11 @@ class _StocksPageState extends State<StocksPage> {
   }
 
   // Add this method to handle immediate updates
-  void _updateStockImmediately(String section, Map<String, dynamic> item, int newQuantity) {
+  void _updateStockImmediately(
+    String section,
+    Map<String, dynamic> item,
+    int newQuantity,
+  ) {
     setState(() {
       item['quantity'] = newQuantity;
       if (newQuantity == 0) {
@@ -1570,12 +1892,17 @@ class _StocksPageState extends State<StocksPage> {
     // Convert current state to CartItems format and notify parent immediately
     Map<String, List<CartItem>> updatedStock = {};
     _sectionItems.forEach((section, items) {
-      updatedStock[section] = items.map((item) => CartItem(
-        name: item['name'],
-        quantity: item['quantity'],
-        price: item['price'],
-        section: section,
-      )).toList();
+      updatedStock[section] =
+          items
+              .map(
+                (item) => CartItem(
+                  name: item['name'],
+                  quantity: item['quantity'],
+                  price: item['price'],
+                  section: section,
+                ),
+              )
+              .toList();
     });
 
     // Notify parent about stock update immediately
@@ -1611,34 +1938,39 @@ class _StocksPageState extends State<StocksPage> {
             const SizedBox(height: 8),
             const Text(
               'Start by adding your first item',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
             const SizedBox(height: 24),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                ElevatedButton.icon(
-                  onPressed: _showAddItemDialog,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add First Item'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _showAddItemDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add First Item'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
-                ElevatedButton.icon(
-                  onPressed: _prePopulateStockItems,
-                  icon: const Icon(Icons.inventory),
-                  label: const Text('Pre-populate Stock'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _prePopulateStockItems,
+                    icon: const Icon(Icons.inventory),
+                    label: const Text('Pre-populate Stock'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -1677,27 +2009,38 @@ class _StocksPageState extends State<StocksPage> {
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
                           title: Text(item['name']),
-                          subtitle: Text('Php ${item['price'].toStringAsFixed(2)}'),
+                          subtitle: Text(
+                            'Php ${item['price'].toStringAsFixed(2)}',
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               TextButton(
-                                onPressed: () => _showQuantityDialog(section, item),
+                                onPressed:
+                                    () => _showQuantityDialog(section, item),
                                 style: TextButton.styleFrom(
-                                  backgroundColor: item['quantity'] == 0 
-                                      ? Colors.red.withAlpha(26)
-                                      : Colors.blue.withAlpha(26),
+                                  backgroundColor:
+                                      item['quantity'] == 0
+                                          ? Colors.red.withAlpha(26)
+                                          : Colors.blue.withAlpha(26),
                                 ),
                                 child: Text(
                                   '${item['quantity']}',
                                   style: TextStyle(
-                                    color: item['quantity'] == 0 ? Colors.red : Colors.blue,
+                                    color:
+                                        item['quantity'] == 0
+                                            ? Colors.red
+                                            : Colors.blue,
                                   ),
                                 ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                onPressed: () => _showDeleteDialog(section, item),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
+                                onPressed:
+                                    () => _showDeleteDialog(section, item),
                               ),
                             ],
                           ),
@@ -1776,42 +2119,50 @@ class _StocksPageState extends State<StocksPage> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit ${item['name']} Quantity'),
-        content: TextField(
-          controller: quantityController,
-          keyboardType: TextInputType.number,
-          autofocus: true, // Add autofocus
-          textInputAction: TextInputAction.done, // Add text input action
-          decoration: const InputDecoration(
-            labelText: 'Quantity',
-            hintText: 'Enter quantity',
-            border: OutlineInputBorder(), // Add border for better visibility
+      builder:
+          (context) => AlertDialog(
+            title: Text('Edit ${item['name']} Quantity'),
+            content: TextField(
+              controller: quantityController,
+              keyboardType: TextInputType.number,
+              autofocus: true, // Add autofocus
+              textInputAction: TextInputAction.done, // Add text input action
+              decoration: const InputDecoration(
+                labelText: 'Quantity',
+                hintText: 'Enter quantity',
+                border:
+                    OutlineInputBorder(), // Add border for better visibility
+              ),
+              onChanged: (value) {
+                // Update in real-time as user types
+                final newQuantity = int.tryParse(value) ?? 0;
+                _updateStockImmediately(section, item, newQuantity);
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final newQuantity =
+                      int.tryParse(quantityController.text) ?? 0;
+                  _updateStockImmediately(section, item, newQuantity);
+                  if (widget.onQuantityChange != null) {
+                    widget.onQuantityChange!(
+                      section,
+                      item['name'],
+                      newQuantity,
+                      item['price'],
+                    );
+                  }
+                  Navigator.pop(context);
+                },
+                child: const Text('Done'),
+              ),
+            ],
           ),
-          onChanged: (value) {
-            // Update in real-time as user types
-            final newQuantity = int.tryParse(value) ?? 0;
-            _updateStockImmediately(section, item, newQuantity);
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              final newQuantity = int.tryParse(quantityController.text) ?? 0;
-              _updateStockImmediately(section, item, newQuantity);
-              if (widget.onQuantityChange != null) {
-                widget.onQuantityChange!(section, item['name'], newQuantity, item['price']);
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Done'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1819,61 +2170,72 @@ class _StocksPageState extends State<StocksPage> {
   void _showDeleteDialog(String section, Map<String, dynamic> item) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Item'),
-        content: Text('Are you sure you want to delete ${item['name']}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              setState(() {
-                _sectionItems[section]?.remove(item);
-              });
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Delete Item'),
+            content: Text('Are you sure you want to delete ${item['name']}?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  setState(() {
+                    _sectionItems[section]?.remove(item);
+                  });
 
-              // Convert and notify parent immediately
-              Map<String, List<CartItem>> updatedStock = {};
-              _sectionItems.forEach((section, items) {
-                updatedStock[section] = items.map((item) => CartItem(
-                  name: item['name'],
-                  quantity: item['quantity'],
-                  price: item['price'],
-                  section: section,
-                )).toList();
-              });
+                  // Convert and notify parent immediately
+                  Map<String, List<CartItem>> updatedStock = {};
+                  _sectionItems.forEach((section, items) {
+                    updatedStock[section] =
+                        items
+                            .map(
+                              (item) => CartItem(
+                                name: item['name'],
+                                quantity: item['quantity'],
+                                price: item['price'],
+                                section: section,
+                              ),
+                            )
+                            .toList();
+                  });
 
-              // Notify parent about stock update immediately
-              if (widget.onStockUpdate != null) {
-                widget.onStockUpdate!(updatedStock);
-              }
+                  // Notify parent about stock update immediately
+                  if (widget.onStockUpdate != null) {
+                    widget.onStockUpdate!(updatedStock);
+                  }
 
-              // Save to Firebase in the background
-              await _saveStockData();
+                  // Save to Firebase in the background
+                  await _saveStockData();
 
-              // Notify parent about item deletion with price
-              if (widget.onQuantityChange != null) {
-                widget.onQuantityChange!(section, item['name'], 0, item['price']);
-              }
+                  // Notify parent about item deletion with price
+                  if (widget.onQuantityChange != null) {
+                    widget.onQuantityChange!(
+                      section,
+                      item['name'],
+                      0,
+                      item['price'],
+                    );
+                  }
 
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('${item['name']} has been deleted'),
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${item['name']} has been deleted'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 2),
+                  foregroundColor: Colors.white,
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
@@ -1881,123 +2243,140 @@ class _StocksPageState extends State<StocksPage> {
   void _showAddItemDialog() {
     String selectedSection = _expandedSections.keys.first;
     final TextEditingController itemController = TextEditingController();
-    final TextEditingController quantityController = TextEditingController(text: '1');
-    final TextEditingController priceController = TextEditingController(text: '0.0');
+    final TextEditingController quantityController = TextEditingController(
+      text: '1',
+    );
+    final TextEditingController priceController = TextEditingController(
+      text: '0.0',
+    );
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Item'),
-        content: SingleChildScrollView( // Add scrolling for smaller screens
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                value: selectedSection,
-                decoration: const InputDecoration(
-                  labelText: 'Category',
-                  border: OutlineInputBorder(), // Add border
-                ),
-                items: _expandedSections.keys.map((String section) {
-                  return DropdownMenuItem<String>(
-                    value: section,
-                    child: Text(section),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
-                    selectedSection = newValue;
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Add New Item'),
+            content: SingleChildScrollView(
+              // Add scrolling for smaller screens
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: selectedSection,
+                    decoration: const InputDecoration(
+                      labelText: 'Category',
+                      border: OutlineInputBorder(), // Add border
+                    ),
+                    items:
+                        _expandedSections.keys.map((String section) {
+                          return DropdownMenuItem<String>(
+                            value: section,
+                            child: Text(section),
+                          );
+                        }).toList(),
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        selectedSection = newValue;
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: itemController,
+                    autofocus: true, // Add autofocus
+                    textInputAction:
+                        TextInputAction.next, // Add text input action
+                    decoration: const InputDecoration(
+                      labelText: 'Item Name',
+                      hintText: 'Enter item name',
+                      border: OutlineInputBorder(), // Add border
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: quantityController,
+                    keyboardType: TextInputType.number,
+                    textInputAction:
+                        TextInputAction.next, // Add text input action
+                    decoration: const InputDecoration(
+                      labelText: 'Quantity',
+                      hintText: 'Enter quantity',
+                      border: OutlineInputBorder(), // Add border
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: priceController,
+                    keyboardType: TextInputType.number,
+                    textInputAction:
+                        TextInputAction.done, // Add text input action
+                    decoration: const InputDecoration(
+                      labelText: 'Price',
+                      hintText: 'Enter price',
+                      prefixText: 'Php ',
+                      border: OutlineInputBorder(), // Add border
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  if (itemController.text.isNotEmpty) {
+                    final quantity = int.tryParse(quantityController.text) ?? 0;
+                    final price = double.tryParse(priceController.text) ?? 0.0;
+
+                    setState(() {
+                      _sectionItems[selectedSection]!.add({
+                        'name': itemController.text,
+                        'quantity': quantity,
+                        'price': price,
+                      });
+                    });
+
+                    // Convert and notify parent immediately
+                    Map<String, List<CartItem>> updatedStock = {};
+                    _sectionItems.forEach((section, items) {
+                      updatedStock[section] =
+                          items
+                              .map(
+                                (item) => CartItem(
+                                  name: item['name'],
+                                  quantity: item['quantity'],
+                                  price: item['price'],
+                                  section: section,
+                                ),
+                              )
+                              .toList();
+                    });
+
+                    // Notify parent about stock update immediately
+                    if (widget.onStockUpdate != null) {
+                      widget.onStockUpdate!(updatedStock);
+                    }
+
+                    // Save to Firebase in the background
+                    await _saveStockData();
+
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${itemController.text} added successfully',
+                        ),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
                   }
                 },
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: itemController,
-                autofocus: true, // Add autofocus
-                textInputAction: TextInputAction.next, // Add text input action
-                decoration: const InputDecoration(
-                  labelText: 'Item Name',
-                  hintText: 'Enter item name',
-                  border: OutlineInputBorder(), // Add border
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: quantityController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next, // Add text input action
-                decoration: const InputDecoration(
-                  labelText: 'Quantity',
-                  hintText: 'Enter quantity',
-                  border: OutlineInputBorder(), // Add border
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: priceController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done, // Add text input action
-                decoration: const InputDecoration(
-                  labelText: 'Price',
-                  hintText: 'Enter price',
-                  prefixText: 'Php ',
-                  border: OutlineInputBorder(), // Add border
-                ),
+                child: const Text('Add'),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (itemController.text.isNotEmpty) {
-                final quantity = int.tryParse(quantityController.text) ?? 0;
-                final price = double.tryParse(priceController.text) ?? 0.0;
-                
-                setState(() {
-                  _sectionItems[selectedSection]!.add({
-                    'name': itemController.text,
-                    'quantity': quantity,
-                    'price': price,
-                  });
-                });
-
-                // Convert and notify parent immediately
-                Map<String, List<CartItem>> updatedStock = {};
-                _sectionItems.forEach((section, items) {
-                  updatedStock[section] = items.map((item) => CartItem(
-                    name: item['name'],
-                    quantity: item['quantity'],
-                    price: item['price'],
-                    section: section,
-                  )).toList();
-                });
-
-                // Notify parent about stock update immediately
-                if (widget.onStockUpdate != null) {
-                  widget.onStockUpdate!(updatedStock);
-                }
-
-                // Save to Firebase in the background
-                await _saveStockData();
-
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('${itemController.text} added successfully'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -2060,12 +2439,10 @@ class ShoppingList {
   final List<CartItem> items;
   final DateTime generatedDate;
 
-  ShoppingList({
-    required this.items,
-    required this.generatedDate,
-  });
+  ShoppingList({required this.items, required this.generatedDate});
 
-  double get total => items.fold(0, (sum, item) => sum + (item.price * item.quantity));
+  double get total =>
+      items.fold(0, (sum, item) => sum + (item.price * item.quantity));
 }
 
 class CartPage extends StatefulWidget {
@@ -2113,7 +2490,8 @@ class _CartPageState extends State<CartPage> {
           _originalStockQuantities.clear();
           data.forEach((section, items) {
             for (var item in items as List) {
-              _originalStockQuantities['${section}_${item['name']}'] = item['quantity'];
+              _originalStockQuantities['${section}_${item['name']}'] =
+                  item['quantity'];
             }
           });
         });
@@ -2135,11 +2513,13 @@ class _CartPageState extends State<CartPage> {
     // Filter items that have changed quantity (deducted from stock)
     final Map<String, List<CartItem>> changedItems = {};
     widget.cartItems.forEach((section, items) {
-      final changedSectionItems = items.where((item) {
-        final originalQuantity = _originalStockQuantities['${section}_${item.name}'] ?? 0;
-        final deductedQuantity = originalQuantity - item.quantity;
-        return deductedQuantity > 0;
-      }).toList();
+      final changedSectionItems =
+          items.where((item) {
+            final originalQuantity =
+                _originalStockQuantities['${section}_${item.name}'] ?? 0;
+            final deductedQuantity = originalQuantity - item.quantity;
+            return deductedQuantity > 0;
+          }).toList();
       if (changedSectionItems.isNotEmpty) {
         changedItems[section] = changedSectionItems;
       }
@@ -2149,7 +2529,8 @@ class _CartPageState extends State<CartPage> {
     double total = 0;
     changedItems.forEach((section, items) {
       for (var item in items) {
-        final originalQuantity = _originalStockQuantities['${section}_${item.name}'] ?? 0;
+        final originalQuantity =
+            _originalStockQuantities['${section}_${item.name}'] ?? 0;
         final deductedQuantity = originalQuantity - item.quantity;
         total += deductedQuantity * item.price;
       }
@@ -2160,7 +2541,11 @@ class _CartPageState extends State<CartPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.shopping_cart_outlined, size: 64, color: Colors.grey),
+            const Icon(
+              Icons.shopping_cart_outlined,
+              size: 64,
+              color: Colors.grey,
+            ),
             const SizedBox(height: 16),
             const Text(
               'No items to buy',
@@ -2174,7 +2559,10 @@ class _CartPageState extends State<CartPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
               ),
             ),
           ],
@@ -2205,7 +2593,9 @@ class _CartPageState extends State<CartPage> {
                     ),
                   ),
                   ...items.map((item) {
-                    final originalQuantity = _originalStockQuantities['${section}_${item.name}'] ?? 0;
+                    final originalQuantity =
+                        _originalStockQuantities['${section}_${item.name}'] ??
+                        0;
                     final deductedQuantity = originalQuantity - item.quantity;
                     return ListTile(
                       title: Text(item.name),
@@ -2229,8 +2619,7 @@ class _CartPageState extends State<CartPage> {
                       ),
                     );
                   }),
-                  if (index < changedItems.length - 1)
-                    const Divider(),
+                  if (index < changedItems.length - 1) const Divider(),
                 ],
               );
             },
@@ -2295,7 +2684,10 @@ class _CartPageState extends State<CartPage> {
                       ),
                       child: const Text(
                         'CONFIRM PURCHASE',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
@@ -2324,24 +2716,27 @@ class _CartPageState extends State<CartPage> {
 
   void _updateShoppingList() {
     List<CartItem> lowStockItems = [];
-    
+
     // Check all sections for low stock items
     for (var section in widget.cartItems.entries) {
       for (var item in section.value) {
-        if (item.quantity <= 5) { // Include items with quantity 0-5
+        if (item.quantity <= 5) {
+          // Include items with quantity 0-5
           // Check if item is already in shopping list
           final existingItem = lowStockItems.firstWhere(
             (i) => i.name == item.name && i.section == item.section,
-            orElse: () => CartItem(
-              name: item.name,
-              quantity: 1,
-              price: item.price,
-              section: item.section,
-              isLowStock: true,
-            ),
+            orElse:
+                () => CartItem(
+                  name: item.name,
+                  quantity: 1,
+                  price: item.price,
+                  section: item.section,
+                  isLowStock: true,
+                ),
           );
 
-          if (existingItem.quantity == 1) { // Only add if it's a new item
+          if (existingItem.quantity == 1) {
+            // Only add if it's a new item
             lowStockItems.add(existingItem);
           }
         }
@@ -2369,113 +2764,120 @@ class _CartPageState extends State<CartPage> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Shopping List'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Generated on: ${DateFormat('MMM dd, yyyy').format(_shoppingList!.generatedDate)}',
-              style: const TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            ..._shoppingList!.items.map((item) => ListTile(
-              title: Text(item.name),
-              subtitle: Text('${item.section} - Php ${item.price.toStringAsFixed(2)}'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline),
-                    onPressed: () {
-                      setState(() {
-                        _shoppingList!.items.remove(item);
-                      });
-                      Navigator.pop(context);
-                      _showShoppingList();
-                    },
-                  ),
-                  Text('${item.quantity}x'),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline),
-                    onPressed: () {
-                      setState(() {
-                        item.quantity++;
-                      });
-                      Navigator.pop(context);
-                      _showShoppingList();
-                    },
-                  ),
-                ],
-              ),
-            )),
-            const Divider(),
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Text(
-                'Total: Php ${_shoppingList!.total.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Shopping List'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Generated on: ${DateFormat('MMM dd, yyyy').format(_shoppingList!.generatedDate)}',
+                  style: const TextStyle(color: Colors.grey),
                 ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // Add all items to cart
-              for (var item in _shoppingList!.items) {
-                // Find the section in cart items
-                if (!widget.cartItems.containsKey(item.section)) {
-                  widget.cartItems[item.section] = [];
-                }
-                
-                // Add or update item in cart
-                final existingItem = widget.cartItems[item.section]!.firstWhere(
-                  (i) => i.name == item.name,
-                  orElse: () => CartItem(
-                    name: item.name,
-                    quantity: 0,
-                    price: item.price,
-                    section: item.section,
+                const SizedBox(height: 16),
+                ..._shoppingList!.items.map(
+                  (item) => ListTile(
+                    title: Text(item.name),
+                    subtitle: Text(
+                      '${item.section} - Php ${item.price.toStringAsFixed(2)}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline),
+                          onPressed: () {
+                            setState(() {
+                              _shoppingList!.items.remove(item);
+                            });
+                            Navigator.pop(context);
+                            _showShoppingList();
+                          },
+                        ),
+                        Text('${item.quantity}x'),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline),
+                          onPressed: () {
+                            setState(() {
+                              item.quantity++;
+                            });
+                            Navigator.pop(context);
+                            _showShoppingList();
+                          },
+                        ),
+                      ],
+                    ),
                   ),
-                );
+                ),
+                const Divider(),
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    'Total: Php ${_shoppingList!.total.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  // Add all items to cart
+                  for (var item in _shoppingList!.items) {
+                    // Find the section in cart items
+                    if (!widget.cartItems.containsKey(item.section)) {
+                      widget.cartItems[item.section] = [];
+                    }
 
-                if (existingItem.quantity == 0) {
-                  existingItem.quantity = item.quantity;
-                  widget.cartItems[item.section]!.add(existingItem);
-                } else {
-                  existingItem.quantity += item.quantity;
-                }
-              }
-              
-              setState(() {
-                _shoppingList = null;
-              });
-              
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Items added to cart'),
+                    // Add or update item in cart
+                    final existingItem = widget.cartItems[item.section]!
+                        .firstWhere(
+                          (i) => i.name == item.name,
+                          orElse:
+                              () => CartItem(
+                                name: item.name,
+                                quantity: 0,
+                                price: item.price,
+                                section: item.section,
+                              ),
+                        );
+
+                    if (existingItem.quantity == 0) {
+                      existingItem.quantity = item.quantity;
+                      widget.cartItems[item.section]!.add(existingItem);
+                    } else {
+                      existingItem.quantity += item.quantity;
+                    }
+                  }
+
+                  setState(() {
+                    _shoppingList = null;
+                  });
+
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Items added to cart'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                },
+                style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
                 ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Add All to Cart'),
+                child: const Text('Add All to Cart'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 }
@@ -2497,7 +2899,7 @@ class ActivityPage extends StatefulWidget {
   final Map<String, List<CartItem>> cartItems;
 
   const ActivityPage({
-    super.key, 
+    super.key,
     required this.purchaseHistory,
     required this.cartItems,
   });
@@ -2556,8 +2958,8 @@ class _ActivityPageState extends State<ActivityPage> {
     // Calculate usage for each month
     for (var purchase in widget.purchaseHistory) {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
-        monthlyUsage[purchase.date.month] = 
-            (monthlyUsage[purchase.date.month] ?? 0) + 
+        monthlyUsage[purchase.date.month] =
+            (monthlyUsage[purchase.date.month] ?? 0) +
             purchase.items.values.fold(0, (sum, quantity) => sum + quantity);
       }
     }
@@ -2586,7 +2988,7 @@ class _ActivityPageState extends State<ActivityPage> {
     // Calculate restocks for each month
     for (var purchase in widget.purchaseHistory) {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
-        monthlyRestocks[purchase.date.month] = 
+        monthlyRestocks[purchase.date.month] =
             (monthlyRestocks[purchase.date.month] ?? 0) + 1;
       }
     }
@@ -2740,9 +3142,13 @@ class _ActivityPageState extends State<ActivityPage> {
                       borderData: FlBorderData(show: false),
                       lineBarsData: [
                         LineChartBarData(
-                          spots: monthlyUsage.asMap().entries.map((entry) {
-                            return FlSpot(entry.key.toDouble(), entry.value);
-                          }).toList(),
+                          spots:
+                              monthlyUsage.asMap().entries.map((entry) {
+                                return FlSpot(
+                                  entry.key.toDouble(),
+                                  entry.value,
+                                );
+                              }).toList(),
                           isCurved: true,
                           color: Colors.blue,
                           barWidth: 3,
@@ -2792,7 +3198,8 @@ class _ActivityPageState extends State<ActivityPage> {
                   child: BarChart(
                     BarChartData(
                       alignment: BarChartAlignment.spaceAround,
-                      maxY: monthlyRestocks.reduce((a, b) => a > b ? a : b) * 1.2,
+                      maxY:
+                          monthlyRestocks.reduce((a, b) => a > b ? a : b) * 1.2,
                       barTouchData: BarTouchData(enabled: false),
                       titlesData: FlTitlesData(
                         show: true,
@@ -2840,21 +3247,23 @@ class _ActivityPageState extends State<ActivityPage> {
                       ),
                       gridData: FlGridData(show: false),
                       borderData: FlBorderData(show: false),
-                      barGroups: monthlyRestocks.asMap().entries.map((entry) {
-                        return BarChartGroupData(
-                          x: entry.key,
-                          barRods: [
-                            BarChartRodData(
-                              toY: entry.value,
-                              color: entry.key == monthlyRestocks.length - 1
-                                  ? Colors.green
-                                  : Colors.grey.withAlpha(51),
-                              width: 20,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ],
-                        );
-                      }).toList(),
+                      barGroups:
+                          monthlyRestocks.asMap().entries.map((entry) {
+                            return BarChartGroupData(
+                              x: entry.key,
+                              barRods: [
+                                BarChartRodData(
+                                  toY: entry.value,
+                                  color:
+                                      entry.key == monthlyRestocks.length - 1
+                                          ? Colors.green
+                                          : Colors.grey.withAlpha(51),
+                                  width: 20,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ],
+                            );
+                          }).toList(),
                     ),
                   ),
                 ),
@@ -2866,7 +3275,12 @@ class _ActivityPageState extends State<ActivityPage> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -2881,13 +3295,7 @@ class _ActivityPageState extends State<ActivityPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 14,
-                  ),
-                ),
+                Text(title, style: TextStyle(color: color, fontSize: 14)),
                 const SizedBox(height: 4),
                 Text(
                   value,
@@ -3129,4 +3537,20 @@ class _EventsPageState extends State<EventsPage> {
     _noteController.dispose();
     super.dispose();
   }
+}
+
+// Helper function for fade transition
+void navigateWithFade(BuildContext context, Widget page) {
+  Navigator.of(context).push(
+    PageRouteBuilder(
+      pageBuilder: (context, animation, secondaryAnimation) => page,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+      transitionDuration: const Duration(milliseconds: 400),
+    ),
+  );
 }
