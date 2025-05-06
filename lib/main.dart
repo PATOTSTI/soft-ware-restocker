@@ -1669,36 +1669,58 @@ class _StocksPageState extends State<StocksPage> {
       _sectionItems.addAll(predefinedItems);
     });
 
-    // Convert and notify parent immediately
-    Map<String, List<CartItem>> updatedStock = {};
-    _sectionItems.forEach((section, items) {
-      updatedStock[section] = items
-          .map(
-            (item) => CartItem(
-              name: item['name'],
-              quantity: item['quantity'],
-              price: item['price'],
-              section: section,
-            ),
-          )
-          .toList();
-    });
+    // Save to Firestore
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
-    // Notify parent about stock update immediately
-    if (widget.onStockUpdate != null) {
-      widget.onStockUpdate!(updatedStock);
-    }
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data');
 
-    // Save to Firebase in the background
-    await _saveStockData();
+      await docRef.set({
+        for (var entry in _sectionItems.entries) entry.key: entry.value,
+      });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Stock items have been pre-populated'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      // Convert and notify parent
+      Map<String, List<CartItem>> updatedStock = {};
+      _sectionItems.forEach((section, items) {
+        updatedStock[section] = items
+            .map(
+              (item) => CartItem(
+                name: item['name'],
+                quantity: item['quantity'],
+                price: (item['price'] as num).toDouble(),
+                section: section,
+              ),
+            )
+            .toList();
+      });
+
+      // Notify parent about stock update
+      if (widget.onStockUpdate != null) {
+        widget.onStockUpdate!(updatedStock);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Stock items have been pre-populated'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving stock data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -1730,58 +1752,39 @@ class _StocksPageState extends State<StocksPage> {
             );
           });
         });
+
+        // Convert and notify parent about the loaded stock data
+        Map<String, List<CartItem>> updatedStock = {};
+        _sectionItems.forEach((section, items) {
+          updatedStock[section] = items
+              .map(
+                (item) => CartItem(
+                  name: item['name'],
+                  quantity: item['quantity'],
+                  price: (item['price'] as num).toDouble(),
+                  section: section,
+                ),
+              )
+              .toList();
+        });
+
+        // Notify parent about stock update
+        if (widget.onStockUpdate != null) {
+          widget.onStockUpdate!(updatedStock);
+        }
+      } else {
+        // If no data exists, pre-populate with default values
+        await _prePopulateStockItems();
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading stock data: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _saveStockData() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('stock_data');
-
-      await docRef.set({
-        for (var entry in _sectionItems.entries) entry.key: entry.value,
-      });
-
-      // Convert _sectionItems to CartItems format and notify parent
-      Map<String, List<CartItem>> updatedStock = {};
-      _sectionItems.forEach((section, items) {
-        updatedStock[section] = items
-            .map(
-              (item) => CartItem(
-                name: item['name'],
-                quantity: item['quantity'],
-                price: item['price'],
-                section: section,
-              ),
-            )
-            .toList();
-      });
-
-      // Notify parent about stock update
-      if (widget.onStockUpdate != null) {
-        widget.onStockUpdate!(updatedStock);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading stock data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error saving stock data: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
@@ -1798,7 +1801,7 @@ class _StocksPageState extends State<StocksPage> {
     String section,
     Map<String, dynamic> item,
     int newQuantity,
-  ) {
+  ) async {
     setState(() {
       item['quantity'] = newQuantity;
       if (newQuantity == 0) {
@@ -1816,7 +1819,7 @@ class _StocksPageState extends State<StocksPage> {
             (item) => CartItem(
               name: item['name'],
               quantity: item['quantity'],
-              price: item['price'],
+              price: (item['price'] as num).toDouble(),
               section: section,
             ),
           )
@@ -1828,8 +1831,88 @@ class _StocksPageState extends State<StocksPage> {
       widget.onStockUpdate!(updatedStock);
     }
 
-    // Save to Firebase in the background
-    _saveStockData();
+    // Update the entire section in Firestore
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final docRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('stocks')
+            .doc('stock_data');
+        await docRef.update({
+          section: _sectionItems[section],
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating stock: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _clearSection(String section) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Clear $section'),
+        content: Text('Are you sure you want to remove all items from $section?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() {
+        _sectionItems[section]?.clear();
+      });
+
+      // Update Firestore
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final docRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('stocks')
+              .doc('stock_data');
+          await docRef.update({
+            section: [],
+          });
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('All items in $section have been cleared.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error clearing $section: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
   }
 
   @override
@@ -2055,7 +2138,7 @@ class _StocksPageState extends State<StocksPage> {
           icon: const Icon(Icons.settings_outlined, size: 20),
           color: color,
           onPressed: () {
-            // Handle section settings
+            _clearSection(title);
           },
         ),
       ],
@@ -2102,8 +2185,30 @@ class _StocksPageState extends State<StocksPage> {
                 widget.onStockUpdate!(updatedStock);
               }
 
-              // Save to Firebase in the background
-              await _saveStockData();
+              // Update Firestore
+              try {
+                final user = FirebaseAuth.instance.currentUser;
+                if (user != null) {
+                  final docRef = FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .collection('stocks')
+                      .doc('stock_data');
+
+                  await docRef.update({
+                    section: _sectionItems[section],
+                  });
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error updating stock: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
 
               // Notify parent about item deletion with price
               if (widget.onQuantityChange != null) {
@@ -2151,7 +2256,6 @@ class _StocksPageState extends State<StocksPage> {
       builder: (context) => AlertDialog(
         title: const Text('Add New Item'),
         content: SingleChildScrollView(
-          // Add scrolling for smaller screens
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2159,7 +2263,7 @@ class _StocksPageState extends State<StocksPage> {
                 value: selectedSection,
                 decoration: const InputDecoration(
                   labelText: 'Category',
-                  border: OutlineInputBorder(), // Add border
+                  border: OutlineInputBorder(),
                 ),
                 items: _expandedSections.keys.map((String section) {
                   return DropdownMenuItem<String>(
@@ -2176,35 +2280,35 @@ class _StocksPageState extends State<StocksPage> {
               const SizedBox(height: 16),
               TextField(
                 controller: itemController,
-                autofocus: true, // Add autofocus
-                textInputAction: TextInputAction.next, // Add text input action
+                autofocus: true,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: 'Item Name',
                   hintText: 'Enter item name',
-                  border: OutlineInputBorder(), // Add border
+                  border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: quantityController,
                 keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next, // Add text input action
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: 'Quantity',
                   hintText: 'Enter quantity',
-                  border: OutlineInputBorder(), // Add border
+                  border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
               TextField(
                 controller: priceController,
                 keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done, // Add text input action
+                textInputAction: TextInputAction.done,
                 decoration: const InputDecoration(
                   labelText: 'Price',
                   hintText: 'Enter price',
                   prefixText: 'Php ',
-                  border: OutlineInputBorder(), // Add border
+                  border: OutlineInputBorder(),
                 ),
               ),
             ],
@@ -2249,8 +2353,30 @@ class _StocksPageState extends State<StocksPage> {
                   widget.onStockUpdate!(updatedStock);
                 }
 
-                // Save to Firebase in the background
-                await _saveStockData();
+                // Update Firestore
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    final docRef = FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user.uid)
+                        .collection('stocks')
+                        .doc('stock_data');
+
+                    await docRef.update({
+                      selectedSection: _sectionItems[selectedSection],
+                    });
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error updating stock: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
 
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
