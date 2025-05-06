@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use
+// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast
 
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
@@ -1140,72 +1140,76 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _loadPurchaseHistory();
-    _loadStockDataToCartItems();
-    _loadCartFromFirestore();
+    _loadStockAndRebuildCart();
   }
 
-  Future<void> _saveCartToFirestore() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-      // Save as a flat list of items
-      final List<Map<String, dynamic>> cartList = [];
-      _cartItems.forEach((section, items) {
-        for (var item in items) {
-          cartList.add({
-            'section': section,
-            'name': item.name,
-            'quantity': item.quantity,
-            'price': item.price,
-          });
-        }
-      });
-      await docRef.set({'cart': cartList});
-    } catch (e) {
-      // Optionally show error
-    }
+  Future<void> _loadStockAndRebuildCart() async {
+    await _rebuildCartFromStock();
   }
 
-  Future<void> _loadCartFromFirestore() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('cart')
-          .doc('cart_data');
-      final doc = await docRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        final cartList = data['cart'] as List<dynamic>?;
-        if (cartList != null) {
-          setState(() {
-            _cartItems.clear();
-            for (var entry in cartList) {
-              final section = entry['section'] as String;
-              if (!_cartItems.containsKey(section)) {
-                _cartItems[section] = [];
+  Future<void> _rebuildCartFromStock() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final stockDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('stock_data');
+    final originalDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('original_stock_data');
+    final stockDoc = await stockDocRef.get();
+    final originalDoc = await originalDocRef.get();
+    if (stockDoc.exists && originalDoc.exists) {
+      final stockData = stockDoc.data() as Map<String, dynamic>;
+      final originalData = originalDoc.data() as Map<String, dynamic>;
+      setState(() {
+        _cartItems.clear();
+        stockData.forEach((section, items) {
+          final List<Map<String, dynamic>> currentItems =
+              List<Map<String, dynamic>>.from(items);
+          final List<Map<String, dynamic>> originalItems =
+              List<Map<String, dynamic>>.from(originalData[section] ?? []);
+
+          // Only add to cart if there's a new deduction
+          for (var orig in originalItems) {
+            final current = currentItems.firstWhere(
+              (item) => item['name'] == orig['name'],
+              orElse: () => {},
+            );
+            if (current.isNotEmpty) {
+              final origQty = orig['quantity'] as int;
+              final currQty = current['quantity'] as int;
+              final deductedQty = origQty - currQty;
+
+              // Only add to cart if there's a new deduction and the item isn't already in cart
+              if (deductedQty > 0) {
+                if (!_cartItems.containsKey(section)) {
+                  _cartItems[section] = [];
+                }
+
+                // Check if item already exists in cart
+                final existingItemIndex = _cartItems[section]!
+                    .indexWhere((item) => item.name == current['name']);
+
+                if (existingItemIndex == -1) {
+                  // Only add if it's not already in cart
+                  _cartItems[section]!.add(
+                    CartItem(
+                      name: current['name'],
+                      quantity: deductedQty,
+                      price: (current['price'] as num).toDouble(),
+                      section: section,
+                    ),
+                  );
+                }
               }
-              _cartItems[section]!.add(
-                CartItem(
-                  name: entry['name'],
-                  quantity: entry['quantity'],
-                  price: (entry['price'] as num).toDouble(),
-                  section: section,
-                ),
-              );
             }
-          });
-        }
-      }
-    } catch (e) {
-      // Optionally show error
+          }
+        });
+      });
     }
   }
 
@@ -1213,161 +1217,6 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _selectedIndex = index;
     });
-  }
-
-  void addToCart(String section, String itemName, double price) {
-    setState(() {
-      if (!_cartItems.containsKey(section)) {
-        _cartItems[section] = [];
-      }
-
-      var existingItem = _cartItems[section]!.firstWhere(
-        (item) => item.name == itemName,
-        orElse: () => CartItem(
-          name: itemName,
-          quantity: 0,
-          price: price,
-          section: section,
-        ),
-      );
-
-      if (existingItem.quantity == 0) {
-        // New item
-        existingItem = CartItem(
-          name: itemName,
-          quantity: 1,
-          price: price,
-          section: section,
-        );
-        _cartItems[section]!.add(existingItem);
-      } else {
-        // Existing item
-        existingItem.quantity++;
-      }
-
-      _saveCartToFirestore(); // Save cart after change
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Added $itemName to cart'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    });
-  }
-
-  void _handleQuantityChange(
-    String section,
-    String itemName,
-    int newQuantity,
-    double price,
-  ) {
-    setState(() {
-      // Find or create the section
-      if (!_cartItems.containsKey(section)) {
-        _cartItems[section] = [];
-      }
-
-      // Find the item in cart items
-      final cartSection = _cartItems[section]!;
-      final existingItemIndex = cartSection.indexWhere(
-        (item) => item.name == itemName,
-      );
-
-      if (existingItemIndex != -1) {
-        // Update existing item
-        final item = cartSection[existingItemIndex];
-        item.quantity = newQuantity;
-        item.price = price;
-
-        // If quantity is 0, remove from cart
-        if (newQuantity == 0) {
-          cartSection.removeAt(existingItemIndex);
-          if (cartSection.isEmpty) {
-            _cartItems.remove(section);
-          }
-        }
-      } else if (newQuantity > 0) {
-        // Add new item
-        cartSection.add(
-          CartItem(
-            name: itemName,
-            quantity: newQuantity,
-            price: price,
-            section: section,
-          ),
-        );
-      }
-      _saveCartToFirestore(); // Save cart after change
-    });
-  }
-
-  void _confirmPurchase() {
-    if (_cartItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Your cart is empty'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
-    // Create a map of all items and their quantities
-    Map<String, int> purchasedItems = {};
-    for (var section in _cartItems.entries) {
-      for (var item in section.value) {
-        purchasedItems[item.name] = item.quantity;
-      }
-    }
-
-    // Add to purchase history
-    final purchase = PurchaseHistory(
-      date: DateTime.now(),
-      amount: _calculateTotal(),
-      items: purchasedItems,
-    );
-
-    setState(() {
-      _purchaseHistory.add(purchase);
-      // Do NOT clear cart here
-    });
-
-    _savePurchaseHistory(); // Save to Firestore
-    // Do NOT clear cart in Firestore here
-
-    // Show confirmation dialog
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Purchase Confirmed'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total Amount: Php ${purchase.amount.toStringAsFixed(2)}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text('Items purchased:'),
-            const SizedBox(height: 4),
-            ...purchasedItems.entries.map(
-              (entry) => Text('• ${entry.key} (${entry.value}x)'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showSettingsDialog() {
@@ -1437,14 +1286,12 @@ class _HomePageState extends State<HomePage> {
         children: [
           StocksPage(
             cartItems: _cartItems,
-            onAddToCart: addToCart,
-            onQuantityChange: _handleQuantityChange,
             onStockUpdate: _updateCartFromStock,
           ),
           CartPage(
             cartItems: _cartItems,
             onConfirmPurchase: _confirmPurchase,
-            onClearCart: _clearCart, // Pass the clear cart callback
+            onClearCart: _clearCart,
           ),
           ActivityPage(
             purchaseHistory: _purchaseHistory,
@@ -1530,74 +1377,293 @@ class _HomePageState extends State<HomePage> {
 
   // Add this method to update activity when stock changes
 
-  Future<void> _loadStockDataToCartItems() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('stock_data');
-      final doc = await docRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        setState(() {
-          _cartItems.clear();
-          data.forEach((section, items) {
-            _cartItems[section] = List<Map<String, dynamic>>.from(items)
-                .map(
-                  (item) => CartItem(
-                    name: item['name'],
-                    quantity: item['quantity'],
-                    price: (item['price'] as num).toDouble(),
-                    section: section,
-                  ),
-                )
-                .toList();
-          });
-        });
-      }
-    } catch (e) {
-      // Optionally show error
-    }
-  }
-
   // Add this method to update cart and persist it when stock changes
   void _updateCartFromStock(Map<String, List<CartItem>> updatedStock) {
     setState(() {
       _cartItems.clear();
       _cartItems.addAll(updatedStock);
     });
-    _saveCartToFirestore(); // Save the updated cart to Firestore
+    _rebuildCartFromStock(); // Always rebuild cart after stock changes
   }
 
   // In HomePage, add the clear cart method
-  void _clearCart() {
+  void _clearCart() async {
     setState(() {
       _cartItems.clear();
     });
-    _saveCartToFirestore();
+
+    // Update stock data in Firestore
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final stockDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('stocks')
+            .doc('stock_data');
+
+        // Get current stock data
+        final stockDoc = await stockDocRef.get();
+        if (stockDoc.exists) {
+
+          // Update each section to match original quantities
+          final originalDocRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('stocks')
+              .doc('original_stock_data');
+          final originalDoc = await originalDocRef.get();
+
+          if (originalDoc.exists) {
+            final originalData = originalDoc.data() as Map<String, dynamic>;
+
+            // Update stock data to match original quantities
+            Map<String, dynamic> updatedStockData = {};
+            originalData.forEach((section, items) {
+              updatedStockData[section] = items;
+            });
+
+            // Save updated stock data
+            await stockDocRef.set(updatedStockData);
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error clearing cart: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _confirmPurchase() async {
+    try {
+      // Create purchase history entry
+      final purchase = PurchaseHistory(
+        date: DateTime.now(),
+        amount: _calculateTotal(),
+        items: _getCartItemsMap(),
+      );
+
+      // Add to purchase history
+      setState(() {
+        _purchaseHistory.add(purchase);
+      });
+
+      // Save to Firestore
+      await _savePurchaseHistory();
+
+      // Reset stock to original quantities
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final stockDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('stocks')
+            .doc('stock_data');
+        final originalDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('stocks')
+            .doc('original_stock_data');
+
+        final originalDoc = await originalDocRef.get();
+        if (originalDoc.exists) {
+          final originalData = originalDoc.data() as Map<String, dynamic>;
+          await stockDocRef.set(originalData);
+        }
+      }
+
+      // Clear the cart
+      setState(() {
+        _cartItems.clear();
+      });
+
+      // Navigate to events page
+      setState(() {
+        _selectedIndex = 3; // Switch to Events tab
+      });
+
+      // Show date selection dialog
+      if (mounted) {
+        _showShoppingDateDialog(purchase);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error confirming purchase: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Map<String, int> _getCartItemsMap() {
+    Map<String, int> items = {};
+    _cartItems.forEach((section, itemsList) {
+      for (var item in itemsList) {
+        items[item.name] = item.quantity;
+      }
+    });
+    return items;
+  }
+
+  void _showShoppingDateDialog(PurchaseHistory purchase) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Set Shopping Date'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'When would you like to do your shopping?',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () async {
+                final DateTime? picked = await showDatePicker(
+                  context: context,
+                  initialDate: DateTime.now().add(const Duration(days: 1)),
+                  firstDate: DateTime.now(),
+                  lastDate: DateTime.now().add(const Duration(days: 365)),
+                );
+                if (picked != null && mounted) {
+                  // Store the shopping date and purchase details
+                  await _storeShoppingEvent(picked, purchase);
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Select Date'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _storeShoppingEvent(
+      DateTime date, PurchaseHistory purchase) async {
+    try {
+      // Debug log
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        // Debug log
+        return;
+      }
+
+      // Debug log
+
+      // First, close the date selection dialog
+      if (mounted) {
+        Navigator.pop(context);
+        // Debug log
+      }
+
+      // Show loading indicator
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+
+      final eventsRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('events')
+          .doc('shopping_events');
+
+      // Debug log
+      // Get existing events
+      final eventsDoc = await eventsRef.get();
+      List<Map<String, dynamic>> events = [];
+      if (eventsDoc.exists) {
+        events =
+            List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
+        // Debug log
+      } else {
+        // Debug log
+      }
+
+      // Add new event
+      final newEvent = {
+        'date': date.toIso8601String(),
+        'purchase': {
+          'date': purchase.date.toIso8601String(),
+          'amount': purchase.amount,
+          'items': purchase.items,
+        },
+      };
+      events.add(newEvent);
+      // Debug log
+
+      // Save updated events
+      // Debug log
+      await eventsRef.set({'events': events});
+      // Debug log
+
+      // Close loading indicator
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+      }
+
+      if (mounted) {
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Shopping date set for ${DateFormat('MMMM dd, yyyy').format(date)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        // Debug log
+
+        // Switch to events page
+        setState(() {
+          _selectedIndex = 3; // Switch to Events tab
+        });
+        // Debug log
+      }
+    } catch (e) {
+      // Debug log
+      // Debug log
+
+      // Close loading indicator if it's showing
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error saving shopping event: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }
 
 class StocksPage extends StatefulWidget {
   final Map<String, List<CartItem>> cartItems;
-  final Function(String section, String itemName, double price) onAddToCart;
-  final Function(
-    String section,
-    String itemName,
-    int newQuantity,
-    double price,
-  )? onQuantityChange;
   final Function(Map<String, List<CartItem>>)?
       onStockUpdate; // Add this callback
 
   const StocksPage({
     super.key,
     required this.cartItems,
-    required this.onAddToCart,
-    this.onQuantityChange,
     this.onStockUpdate,
   });
 
@@ -1683,6 +1749,19 @@ class _StocksPageState extends State<StocksPage> {
       await docRef.set({
         for (var entry in _sectionItems.entries) entry.key: entry.value,
       });
+
+      // Also save original stock data if not already present
+      final originalDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('original_stock_data');
+      final originalDoc = await originalDocRef.get();
+      if (!originalDoc.exists) {
+        await originalDocRef.set({
+          for (var entry in _sectionItems.entries) entry.key: entry.value,
+        });
+      }
 
       // Convert and notify parent
       Map<String, List<CartItem>> updatedStock = {};
@@ -1812,13 +1891,13 @@ class _StocksPageState extends State<StocksPage> {
     });
 
     // Convert current state to CartItems format and notify parent immediately
-    Map<String, List<CartItem>> updatedStock = {};
+    final Map<String, List<CartItem>> updatedStock = {};
     _sectionItems.forEach((section, items) {
       updatedStock[section] = items
           .map(
             (item) => CartItem(
-              name: item['name'],
-              quantity: item['quantity'],
+              name: item['name'] as String,
+              quantity: item['quantity'] as int,
               price: (item['price'] as num).toDouble(),
               section: section,
             ),
@@ -1854,6 +1933,11 @@ class _StocksPageState extends State<StocksPage> {
         );
       }
     }
+
+    // Save the cart after every deduction
+    if (widget.onStockUpdate != null) {
+      widget.onStockUpdate!(updatedStock);
+    }
   }
 
   void _clearSection(String section) async {
@@ -1861,7 +1945,8 @@ class _StocksPageState extends State<StocksPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Clear $section'),
-        content: Text('Are you sure you want to remove all items from $section?'),
+        content:
+            Text('Are you sure you want to remove all items from $section?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1893,6 +1978,23 @@ class _StocksPageState extends State<StocksPage> {
           await docRef.update({
             section: [],
           });
+        }
+        // Notify parent about stock update immediately
+        if (widget.onStockUpdate != null) {
+          Map<String, List<CartItem>> updatedStock = {};
+          _sectionItems.forEach((section, items) {
+            updatedStock[section] = items
+                .map(
+                  (item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ),
+                )
+                .toList();
+          });
+          widget.onStockUpdate!(updatedStock);
         }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1947,7 +2049,7 @@ class _StocksPageState extends State<StocksPage> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: _showAddItemDialog,
+                    onPressed: _showAddItemBottomSheet,
                     icon: const Icon(Icons.add),
                     label: const Text('Add First Item'),
                     style: ElevatedButton.styleFrom(
@@ -2022,14 +2124,6 @@ class _StocksPageState extends State<StocksPage> {
                                     // Only allow quantities >= 0
                                     _updateStockImmediately(
                                         section, item, newQuantity);
-                                    if (widget.onQuantityChange != null) {
-                                      widget.onQuantityChange!(
-                                        section,
-                                        item['name'],
-                                        newQuantity,
-                                        item['price'],
-                                      );
-                                    }
                                   }
                                 },
                               ),
@@ -2060,14 +2154,6 @@ class _StocksPageState extends State<StocksPage> {
                                       (item['quantity'] as int) + 1;
                                   _updateStockImmediately(
                                       section, item, newQuantity);
-                                  if (widget.onQuantityChange != null) {
-                                    widget.onQuantityChange!(
-                                      section,
-                                      item['name'],
-                                      newQuantity,
-                                      item['price'],
-                                    );
-                                  }
                                 },
                               ),
                               IconButton(
@@ -2093,7 +2179,7 @@ class _StocksPageState extends State<StocksPage> {
           bottom: 16,
           child: FloatingActionButton(
             heroTag: 'add_item',
-            onPressed: _showAddItemDialog,
+            onPressed: _showAddItemBottomSheet,
             backgroundColor: Colors.green,
             child: const Icon(Icons.add, color: Colors.white),
           ),
@@ -2151,7 +2237,7 @@ class _StocksPageState extends State<StocksPage> {
   void _showDeleteDialog(String section, Map<String, dynamic> item) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (BuildContext context) => AlertDialog(
         title: const Text('Delete Item'),
         content: Text('Are you sure you want to delete ${item['name']}?'),
         actions: [
@@ -2166,14 +2252,14 @@ class _StocksPageState extends State<StocksPage> {
               });
 
               // Convert and notify parent immediately
-              Map<String, List<CartItem>> updatedStock = {};
+              final Map<String, List<CartItem>> updatedStock = {};
               _sectionItems.forEach((section, items) {
                 updatedStock[section] = items
                     .map(
                       (item) => CartItem(
-                        name: item['name'],
-                        quantity: item['quantity'],
-                        price: item['price'],
+                        name: item['name'] as String,
+                        quantity: item['quantity'] as int,
+                        price: (item['price'] as num).toDouble(),
                         section: section,
                       ),
                     )
@@ -2211,13 +2297,8 @@ class _StocksPageState extends State<StocksPage> {
               }
 
               // Notify parent about item deletion with price
-              if (widget.onQuantityChange != null) {
-                widget.onQuantityChange!(
-                  section,
-                  item['name'],
-                  0,
-                  item['price'],
-                );
+              if (widget.onStockUpdate != null) {
+                widget.onStockUpdate!(updatedStock);
               }
 
               Navigator.pop(context);
@@ -2241,28 +2322,52 @@ class _StocksPageState extends State<StocksPage> {
   }
 
   // Modify _showAddItemDialog to use immediate updates
-  void _showAddItemDialog() {
+  void _showAddItemBottomSheet() {
     String selectedSection = _expandedSections.keys.first;
     final TextEditingController itemController = TextEditingController();
-    final TextEditingController quantityController = TextEditingController(
-      text: '1',
-    );
-    final TextEditingController priceController = TextEditingController(
-      text: '0.0',
-    );
+    final TextEditingController quantityController =
+        TextEditingController(text: '1');
+    final TextEditingController priceController =
+        TextEditingController(text: '0.0');
+    final formKey = GlobalKey<FormState>();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Add New Item'),
-        content: SingleChildScrollView(
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext context) => Padding(
+        padding: EdgeInsets.only(
+          left: 24,
+          right: 24,
+          top: 24,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+        ),
+        child: Form(
+          key: formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Text(
+                'Add New Item',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
               DropdownButtonFormField<String>(
                 value: selectedSection,
                 decoration: const InputDecoration(
                   labelText: 'Category',
+                  prefixIcon: Icon(Icons.category),
                   border: OutlineInputBorder(),
                 ),
                 items: _expandedSections.keys.map((String section) {
@@ -2278,120 +2383,191 @@ class _StocksPageState extends State<StocksPage> {
                 },
               ),
               const SizedBox(height: 16),
-              TextField(
+              TextFormField(
                 controller: itemController,
                 autofocus: true,
                 textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: 'Item Name',
                   hintText: 'Enter item name',
+                  prefixIcon: Icon(Icons.edit),
                   border: OutlineInputBorder(),
                 ),
+                validator: (String? value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter an item name';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
-              TextField(
-                controller: quantityController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Quantity',
-                  hintText: 'Enter quantity',
-                  border: OutlineInputBorder(),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: quantityController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity',
+                        prefixIcon: Icon(Icons.confirmation_number),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (String? value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Enter quantity';
+                        }
+                        final qty = int.tryParse(value);
+                        if (qty == null || qty < 1) {
+                          return 'Enter a valid quantity';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: priceController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Price',
+                        prefixIcon: Icon(Icons.attach_money),
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (String? value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Enter price';
+                        }
+                        final price = double.tryParse(value);
+                        if (price == null || price < 0) {
+                          return 'Enter a valid price';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: priceController,
-                keyboardType: TextInputType.number,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Price',
-                  hintText: 'Enter price',
-                  prefixText: 'Php ',
-                  border: OutlineInputBorder(),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add Item',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      final quantity =
+                          int.tryParse(quantityController.text) ?? 0;
+                      final price =
+                          double.tryParse(priceController.text) ?? 0.0;
+
+                      setState(() {
+                        _sectionItems[selectedSection]!.add({
+                          'name': itemController.text.trim(),
+                          'quantity': quantity,
+                          'price': price,
+                        });
+                      });
+
+                      // Convert and notify parent immediately
+                      final Map<String, List<CartItem>> updatedStock = {};
+                      _sectionItems.forEach((section, items) {
+                        updatedStock[section] = items
+                            .map(
+                              (item) => CartItem(
+                                name: item['name'] as String,
+                                quantity: item['quantity'] as int,
+                                price: (item['price'] as num).toDouble(),
+                                section: section,
+                              ),
+                            )
+                            .toList();
+                      });
+
+                      // Notify parent about stock update immediately
+                      if (widget.onStockUpdate != null) {
+                        widget.onStockUpdate!(updatedStock);
+                      }
+
+                      // Update Firestore
+                      try {
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user != null) {
+                          final docRef = FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(user.uid)
+                              .collection('stocks')
+                              .doc('stock_data');
+
+                          await docRef.update({
+                            selectedSection: _sectionItems[selectedSection],
+                          });
+
+                          // Also update original_stock_data if this is a new item
+                          final originalDocRef = FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(user.uid)
+                              .collection('stocks')
+                              .doc('original_stock_data');
+                          final originalDoc = await originalDocRef.get();
+                          if (originalDoc.exists) {
+                            final originalData =
+                                originalDoc.data() as Map<String, dynamic>;
+                            final List<dynamic> originalSection =
+                                List.from(originalData[selectedSection] ?? []);
+                            final exists = originalSection.any((item) =>
+                                item['name'] == itemController.text.trim());
+                            if (!exists) {
+                              originalSection.add({
+                                'name': itemController.text.trim(),
+                                'quantity': quantity,
+                                'price': price,
+                              });
+                              await originalDocRef.update({
+                                selectedSection: originalSection,
+                              });
+                            }
+                          }
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error updating stock: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      }
+
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                              '${itemController.text.trim()} added successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  },
                 ),
               ),
             ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (itemController.text.isNotEmpty) {
-                final quantity = int.tryParse(quantityController.text) ?? 0;
-                final price = double.tryParse(priceController.text) ?? 0.0;
-
-                setState(() {
-                  _sectionItems[selectedSection]!.add({
-                    'name': itemController.text,
-                    'quantity': quantity,
-                    'price': price,
-                  });
-                });
-
-                // Convert and notify parent immediately
-                Map<String, List<CartItem>> updatedStock = {};
-                _sectionItems.forEach((section, items) {
-                  updatedStock[section] = items
-                      .map(
-                        (item) => CartItem(
-                          name: item['name'],
-                          quantity: item['quantity'],
-                          price: item['price'],
-                          section: section,
-                        ),
-                      )
-                      .toList();
-                });
-
-                // Notify parent about stock update immediately
-                if (widget.onStockUpdate != null) {
-                  widget.onStockUpdate!(updatedStock);
-                }
-
-                // Update Firestore
-                try {
-                  final user = FirebaseAuth.instance.currentUser;
-                  if (user != null) {
-                    final docRef = FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(user.uid)
-                        .collection('stocks')
-                        .doc('stock_data');
-
-                    await docRef.update({
-                      selectedSection: _sectionItems[selectedSection],
-                    });
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Error updating stock: $e'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      '${itemController.text} added successfully',
-                    ),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            },
-            child: const Text('Add'),
-          ),
-        ],
       ),
     );
   }
@@ -2463,14 +2639,14 @@ class ShoppingList {
 
 class CartPage extends StatefulWidget {
   final Map<String, List<CartItem>> cartItems;
-  final Function() onConfirmPurchase;
-  final Function() onClearCart;
+  final Function()? onConfirmPurchase;
+  final Function()? onClearCart;
 
   const CartPage({
     super.key,
     required this.cartItems,
-    required this.onConfirmPurchase,
-    required this.onClearCart,
+    this.onConfirmPurchase,
+    this.onClearCart,
   });
 
   @override
@@ -2478,78 +2654,10 @@ class CartPage extends StatefulWidget {
 }
 
 class _CartPageState extends State<CartPage> {
-  final Map<String, int> _originalStockQuantities = {};
-
-  @override
-  void initState() {
-    super.initState();
-    _loadOriginalStockQuantities();
-  }
-
-  Future<void> _loadOriginalStockQuantities() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('stock_data');
-
-      final doc = await docRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        setState(() {
-          _originalStockQuantities.clear();
-          data.forEach((section, items) {
-            for (var item in items as List) {
-              _originalStockQuantities['${section}_${item['name']}'] =
-                  item['quantity'];
-            }
-          });
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading stock quantities: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    // Filter items that have changed quantity (deducted from stock)
-    final Map<String, List<CartItem>> changedItems = {};
-    widget.cartItems.forEach((section, items) {
-      final changedSectionItems = items.where((item) {
-        final originalQuantity =
-            _originalStockQuantities['${section}_${item.name}'] ?? 0;
-        final deductedQuantity = originalQuantity - item.quantity;
-        return deductedQuantity > 0;
-      }).toList();
-      if (changedSectionItems.isNotEmpty) {
-        changedItems[section] = changedSectionItems;
-      }
-    });
-
-    // Calculate total using only deducted quantities
-    double total = 0;
-    changedItems.forEach((section, items) {
-      for (var item in items) {
-        final originalQuantity =
-            _originalStockQuantities['${section}_${item.name}'] ?? 0;
-        final deductedQuantity = originalQuantity - item.quantity;
-        total += deductedQuantity * item.price;
-      }
-    });
-
-    if (changedItems.isEmpty) {
+    if (widget.cartItems.isEmpty ||
+        widget.cartItems.values.every((items) => items.isEmpty)) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2581,15 +2689,22 @@ class _CartPageState extends State<CartPage> {
       );
     }
 
+    double total = 0;
+    widget.cartItems.forEach((section, items) {
+      for (var item in items) {
+        total += item.price * item.quantity;
+      }
+    });
+
     return Column(
       children: [
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: changedItems.length,
+            itemCount: widget.cartItems.length,
             itemBuilder: (context, index) {
-              final section = changedItems.keys.elementAt(index);
-              final items = changedItems[section]!;
+              final section = widget.cartItems.keys.elementAt(index);
+              final items = widget.cartItems[section]!;
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2622,10 +2737,6 @@ class _CartPageState extends State<CartPage> {
                   ),
                   const SizedBox(height: 8),
                   ...items.map((item) {
-                    final originalQuantity =
-                        _originalStockQuantities['${section}_${item.name}'] ??
-                            0;
-                    final deductedQuantity = originalQuantity - item.quantity;
                     return Card(
                       elevation: 2,
                       margin: const EdgeInsets.only(bottom: 8),
@@ -2665,7 +2776,7 @@ class _CartPageState extends State<CartPage> {
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Text(
-                                '${deductedQuantity}x',
+                                '${item.quantity}x',
                                 style: const TextStyle(
                                   color: Colors.orange,
                                   fontWeight: FontWeight.bold,
@@ -2674,7 +2785,7 @@ class _CartPageState extends State<CartPage> {
                             ),
                             const SizedBox(width: 12),
                             Text(
-                              'Php ${(item.price * deductedQuantity).toStringAsFixed(2)}',
+                              'Php ${(item.price * item.quantity).toStringAsFixed(2)}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -2685,7 +2796,7 @@ class _CartPageState extends State<CartPage> {
                       ),
                     );
                   }),
-                  if (index < changedItems.length - 1)
+                  if (index < widget.cartItems.length - 1)
                     const SizedBox(height: 16),
                 ],
               );
@@ -3232,217 +3343,330 @@ class EventsPage extends StatefulWidget {
   State<EventsPage> createState() => _EventsPageState();
 }
 
-class _EventsPageState extends State<EventsPage> {
-  DateTime? _selectedDate;
-  final Map<DateTime, bool> _shoppingDates = {};
-  final TextEditingController _noteController = TextEditingController();
-
-  void _selectDate(DateTime date) {
-    setState(() {
-      _selectedDate = date;
-    });
-    _showDateConfirmationDialog(date);
-  }
-
-  void _showDateConfirmationDialog(DateTime date) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Set Shopping Date'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Selected Date: ${DateFormat('MMMM dd, yyyy').format(date)}',
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _noteController,
-              decoration: const InputDecoration(
-                labelText: 'Add a note (optional)',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 2,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _noteController.clear();
-            },
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _shoppingDates[date] = true;
-              });
-              Navigator.pop(context);
-              _showConfirmationSnackBar(date);
-              _noteController.clear();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Set Date'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showConfirmationSnackBar(DateTime date) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Shopping reminder set for ${DateFormat('MMMM dd, yyyy').format(date)}',
-        ),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
-
-  void _checkUpcomingDate(DateTime date) {
-    final now = DateTime.now();
-    if (date.year == now.year &&
-        date.month == now.month &&
-        date.day == now.day) {
-      _showShoppingReminderDialog(date);
-    }
-  }
-
-  void _showShoppingReminderDialog(DateTime date) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Shopping Reminder'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.shopping_cart, size: 48, color: Colors.green),
-            SizedBox(height: 16),
-            Text(
-              'Your set date is coming up, would you like the system to set the next date automatically?',
-              style: TextStyle(fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('NO'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // Set next month's date
-              final nextMonth = date.add(const Duration(days: 30));
-              setState(() {
-                _shoppingDates[nextMonth] = true;
-              });
-              Navigator.pop(context);
-              _showConfirmationSnackBar(nextMonth);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('YES'),
-          ),
-        ],
-      ),
-    );
-  }
+class _EventsPageState extends State<EventsPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    // Check for today's shopping date
-    _shoppingDates.forEach((date, isSet) {
-      if (isSet) _checkUpcomingDate(date);
-    });
+    super.build(context);
+    // Debug log
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: TextField(
-            readOnly: true,
-            decoration: InputDecoration(
-              labelText: _selectedDate == null
-                  ? 'Select a date'
-                  : DateFormat('MM/dd/yyyy').format(_selectedDate!),
-              border: const OutlineInputBorder(),
-              suffixIcon: const Icon(Icons.calendar_today),
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      // Debug log
+      return const Center(
+        child: Text('Please log in to view events'),
+      );
+    }
+
+    // Debug log
+
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('events')
+          .doc('shopping_events')
+          .snapshots(),
+      builder: (context, snapshot) {
+        // Debug log
+
+        if (snapshot.hasError) {
+          // Debug log
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading events: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {}); // Force rebuild
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
             ),
-            onTap: () async {
-              final DateTime? picked = await showDatePicker(
-                context: context,
-                initialDate: _selectedDate ?? DateTime.now(),
-                firstDate: DateTime.now(),
-                lastDate: DateTime.now().add(const Duration(days: 365)),
-              );
-              if (picked != null) {
-                _selectDate(picked);
-              }
-            },
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _shoppingDates.length,
-            itemBuilder: (context, index) {
-              final date = _shoppingDates.keys.elementAt(index);
-              return Card(
-                elevation: 2,
-                margin: const EdgeInsets.only(bottom: 12),
-                child: ListTile(
-                  leading: const Icon(Icons.shopping_bag, color: Colors.green),
-                  title: const Text(
-                    'Shopping Day',
-                    style: TextStyle(fontWeight: FontWeight.bold),
+          );
+        }
+
+        // Show loading indicator while waiting for initial data
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          // Debug log
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        // Handle no data case
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          // Debug log
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.event_busy,
+                  size: 80,
+                  color: Colors.grey,
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'No Shopping Events',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
                   ),
-                  subtitle: Text(
-                    DateFormat('MMMM dd, yyyy').format(date),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Your shopping events will appear here',
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          );
+        }
+
+        try {
+          // Debug log
+          final data = snapshot.data!.data() as Map<String, dynamic>;
+          final events = List<Map<String, dynamic>>.from(data['events'] ?? []);
+          // Debug log
+
+          if (events.isEmpty) {
+            // Debug log
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.event_busy,
+                    size: 80,
+                    color: Colors.grey,
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'No Shopping Events',
                     style: TextStyle(
-                      color: date.isBefore(DateTime.now())
-                          ? Colors.red
-                          : Colors.green,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
                     ),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    onPressed: () {
-                      setState(() {
-                        _shoppingDates.remove(date);
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Shopping date removed'),
-                          backgroundColor: Colors.red,
+                  SizedBox(height: 8),
+                  Text(
+                    'Your shopping events will appear here',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // Debug log
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: events.length,
+            itemBuilder: (context, index) {
+              final event = events[index];
+              final date = DateTime.parse(event['date']);
+              final purchase = event['purchase'] as Map<String, dynamic>;
+              final purchaseDate = DateTime.parse(purchase['date']);
+              final amount = (purchase['amount'] as num).toDouble();
+              final items = Map<String, int>.from(purchase['items']);
+
+              // In the _EventsPageState class, add this method to handle event deletion
+              Future<void> _deleteEvent(int index, List<Map<String, dynamic>> events) async {
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user == null) return;
+
+                  // Show confirmation dialog
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (BuildContext context) => AlertDialog(
+                      title: const Text('Delete Event'),
+                      content: const Text('Are you sure you want to delete this shopping event?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Cancel'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirmed == true) {
+                    // Show loading indicator
+                    if (mounted) {
+                      showDialog(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (BuildContext context) => const Center(
+                          child: CircularProgressIndicator(),
                         ),
                       );
-                    },
+                    }
+
+                    // Remove the event from the list
+                    events.removeAt(index);
+
+                    // Update Firestore
+                    final eventsRef = FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user.uid)
+                        .collection('events')
+                        .doc('shopping_events');
+
+                    await eventsRef.set({'events': events});
+
+                    // Close loading indicator
+                    if (mounted) {
+                      Navigator.pop(context);
+                    }
+
+                    // Show success message
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Event deleted successfully'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                    }
+                  }
+                } catch (e) {
+                  // Close loading indicator if it's showing
+                  if (mounted) {
+                    Navigator.pop(context);
+                  }
+
+                  // Show error message
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error deleting event: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              }
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 16),
+                child: ExpansionTile(
+                  leading: const Icon(Icons.shopping_bag, color: Colors.green),
+                  title: Text(
+                    DateFormat('MMMM dd, yyyy').format(date),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
+                  subtitle: Text(
+                    'Created on ${DateFormat('MMM dd, yyyy').format(purchaseDate)}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.red),
+                    onPressed: () => _deleteEvent(index, events),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Purchase Details:',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Total Amount: Php ${amount.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Items:',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          ...items.entries.map((entry) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(entry.key),
+                                  Text(
+                                    '${entry.value}x',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
-          ),
-        ),
-      ],
+          );
+        } catch (e) {
+          // Debug log
+          // Debug log
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Error processing events: $e',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {}); // Force rebuild
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+      },
     );
-  }
-
-  @override
-  void dispose() {
-    _noteController.dispose();
-    super.dispose();
   }
 }
 
