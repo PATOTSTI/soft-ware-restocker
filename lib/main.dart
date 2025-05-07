@@ -29,7 +29,16 @@ class MyApp extends StatelessWidget {
       title: 'ReStckr',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        fontFamily: 'Poppins',
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(fontSize: 70, fontWeight: FontWeight.w800, fontStyle: FontStyle.italic), //Restckr
+          displayMedium: TextStyle(fontSize: 40, fontWeight: FontWeight.w600),
+          titleLarge: TextStyle(fontSize: 26), //Cart,Stock,Event,Activity, Sign-up
+          bodyLarge: TextStyle(fontSize: 22,),
+          bodyMedium: TextStyle(fontSize: 20),
+          labelLarge: TextStyle(fontSize: 16),
+        ),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromRGBO(76, 175, 80, 1)),
         useMaterial3: true,
       ),
       home: const Wrapper(),
@@ -330,34 +339,34 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 0),
                     // Logo
                     Image.asset(
                       'lib/assets/logo.png',
-                      width: 80,
-                      height: 80,
+                      width: 93,
+                      height: 93,
                       errorBuilder: (context, error, stackTrace) => const Icon(
                         Icons.shopping_bag_outlined,
                         size: 60,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 0),
                     // App Name
-                    const Text(
+                    Text(
                       'ReStckr',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
+                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
+                    const SizedBox(height: 1),
+                    Text(
                       'Your companion in everyday shopping.',
-                      style: TextStyle(fontSize: 16, color: Colors.white70),
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white70),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
                     // Login Form
                     Container(
                       width: double.infinity,
@@ -377,11 +386,11 @@ class _LoginPageState extends State<LoginPage> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const Text(
-                            'Log in to access your grocery lists\nand more.',
+                          Text(
+                            'Log in to access your grocery lists and more.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16,
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w300,
                               color: Colors.black87,
                             ),
                           ),
@@ -400,6 +409,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               );
                             },
+                            style: Theme.of(context).textTheme.labelLarge,
                             decoration: const InputDecoration(
                               labelText: 'Email',
                               border: OutlineInputBorder(
@@ -418,7 +428,7 @@ class _LoginPageState extends State<LoginPage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
                           // Password Field
                           TextFormField(
                             controller: _passwordController,
@@ -432,6 +442,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               );
                             },
+                            style: Theme.of(context).textTheme.labelLarge,
                             decoration: InputDecoration(
                               labelText: 'Password',
                               border: const OutlineInputBorder(
@@ -462,17 +473,18 @@ class _LoginPageState extends State<LoginPage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 18),
                           // Login Button
                           ElevatedButton(
                             onPressed: _isLoading ? null : _handleLogin,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.black,
                               foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
+                              textStyle: Theme.of(context).textTheme.bodyMedium
                             ),
                             child: _isLoading
                                 ? const SizedBox(
@@ -487,7 +499,7 @@ class _LoginPageState extends State<LoginPage> {
                                   )
                                 : const Text('LOGIN'),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
                           // Forgot Password
                           Center(
                             child: TextButton(
@@ -495,9 +507,14 @@ class _LoginPageState extends State<LoginPage> {
                                 context,
                                 '/forgot-password',
                               ),
-                              child: const Text(
+                              child: Text(
                                 'Forgot password?',
-                                style: TextStyle(color: Colors.orange),
+                                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.orange,
+                                  decoration: TextDecoration.underline,
+                                  decorationColor: Colors.orange,
+                                  ),
                               ),
                             ),
                           ),
@@ -505,32 +522,42 @@ class _LoginPageState extends State<LoginPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Text("Don't have an account?"),
+                              Text("Don't have an account?",
+                                style: Theme.of(context).textTheme.labelLarge),
                               TextButton(
                                 onPressed: () => navigateWithFade(
                                   context,
                                   const SignUpPage(),
                                 ),
-                                child: const Text(
+                                child:  Text(
                                   'Sign up',
-                                  style: TextStyle(color: Colors.orange),
-                                ),
+                                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.orange,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: Colors.orange
+                                ),)
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 18),
                           // Social Login Divider
                           const Row(
                             children: [
                               Expanded(child: Divider()),
                               Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 16),
-                                child: Text('Sign in with'),
+                                child:  Text('Sign in with',
+                                  style: TextStyle(
+                                    fontFamily: "Poppins",
+                                    fontSize: 16
+                                    )
+                                  ),
                               ),
                               Expanded(child: Divider()),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 14),
                           // Social Login Buttons
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -542,15 +569,17 @@ class _LoginPageState extends State<LoginPage> {
                                   FontAwesomeIcons.facebook,
                                   color: Colors.blue,
                                 ),
+                                iconSize: 40,
                               ),
-                              const SizedBox(width: 16),
+                              const SizedBox(width: 14),
                               IconButton(
                                 onPressed:
-                                    _isLoading ? null : _handleGoogleSignIn,
+                                _isLoading ? null : _handleGoogleSignIn,
                                 icon: const FaIcon(
-                                  FontAwesomeIcons.google,
-                                  color: Colors.red,
+                                    FontAwesomeIcons.google,
+                                    color: Colors.red
                                 ),
+                                iconSize: 40,
                               ),
                             ],
                           ),
@@ -642,32 +671,33 @@ class _SignUpPageState extends State<SignUpPage> {
                   children: [
                     // User Icon
                     Container(
-                      width: 100,
-                      height: 100,
+                      width: 160,
+                      height: 160,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black12, width: 2),
+                        border: Border.all(color: const Color.fromRGBO(76, 175, 80, 1), width: 4),
                       ),
                       child: const Icon(
                         Icons.person_outline,
-                        size: 60,
-                        color: Colors.black38,
+                        size: 100,
+                        color: Color.fromRGBO(76, 175, 80, 1),
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 18),
                     // Sign Up Text
-                    const Text(
+                    Text(
                       'Sign Up',
-                      style: TextStyle(
-                        fontSize: 32,
+                      style: Theme.of(context).textTheme.displayMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.black,
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       'Create your account',
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: Colors.grey,
+                      ),
                     ),
                     const SizedBox(height: 32),
                     // Full Name Field
@@ -677,7 +707,11 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Full name',
-                        labelStyle: TextStyle(color: Colors.grey),
+                        labelStyle: TextStyle(
+                          fontFamily: "Poppins",
+                          fontSize: 22,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -702,7 +736,11 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Email',
-                        labelStyle: TextStyle(color: Colors.grey),
+                        labelStyle: TextStyle(
+                            fontFamily: "Poppins",
+                            fontSize: 22,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -730,7 +768,10 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: InputDecoration(
                         labelText: 'Password',
-                        labelStyle: const TextStyle(color: Colors.grey),
+                        labelStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey
+                        ),
                         border: InputBorder.none,
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -771,13 +812,16 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.done,
                       decoration: InputDecoration(
                         labelText: 'Confirm your password',
-                        labelStyle: const TextStyle(color: Colors.grey),
+                        labelStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey
+                        ),
                         border: InputBorder.none,
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
                         focusedBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: accentColor, width: 2),
+                          borderSide: BorderSide(color: accentColor),
                         ),
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
                         suffixIcon: IconButton(
@@ -785,7 +829,7 @@ class _SignUpPageState extends State<SignUpPage> {
                             _obscureConfirmPassword
                                 ? Icons.visibility_off
                                 : Icons.visibility,
-                            color: accentColor,
+                            color: accentColor
                           ),
                           onPressed: () {
                             setState(() {
@@ -817,7 +861,7 @@ class _SignUpPageState extends State<SignUpPage> {
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
-                          ),
+                          ),textStyle: Theme.of(context).textTheme.bodyMedium,
                           elevation: 2,
                         ),
                         child: _isLoading
@@ -846,14 +890,18 @@ class _SignUpPageState extends State<SignUpPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text('Already have an account?'),
+                        Text('Already have an account?',
+                          style: Theme.of(context).textTheme.bodyMedium),
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(),
                           child: const Text(
                             'Login',
                             style: TextStyle(
+                              fontFamily: "Poppins",
+                              fontSize: 22,
                               color: accentColor,
-                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline,
+                              decorationColor: accentColor
                             ),
                           ),
                         ),
@@ -925,6 +973,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
       appBar: AppBar(
         title: const Text('Reset Password'),
+        foregroundColor: Colors.white,
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
@@ -963,7 +1012,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                     const SizedBox(height: 24),
                     // Title
                     const Text(
-                      'Reset Password',
+                      'Change Password',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -1271,12 +1320,17 @@ class _HomePageState extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [Icon(_titleIcon), const SizedBox(width: 8), Text(_title)],
+          children: [Image.asset('lib/assets/logo.png', width:40, height:40), const SizedBox(width: 3), Text(_title,
+          style: const TextStyle(
+            fontFamily: "Poppins",
+            fontSize: 30,
+            fontWeight: FontWeight.w400))],
         ),
         actions: [
-          const IconButton(icon: Icon(Icons.notifications), onPressed: null),
+          const IconButton(icon: Icon(Icons.notifications), onPressed: null, iconSize: 25),
           IconButton(
             icon: const Icon(Icons.settings),
+            iconSize: 25,
             onPressed: _showSettingsDialog,
           ),
         ],
@@ -1300,23 +1354,27 @@ class _HomePageState extends State<HomePage> {
           const EventsPage(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.inventory), label: 'Stocks'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_cart),
-            label: 'Cart',
+        bottomNavigationBar: BottomNavigationBar(currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          type: BottomNavigationBarType.fixed,
+          selectedLabelStyle: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Activity'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: 'Events',
+          unselectedLabelStyle: const TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: 13,
+            fontWeight: FontWeight.w400,
           ),
-        ],
-      ),
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.inventory, size: 30), label: 'Stocks'),
+            BottomNavigationBarItem(icon: Icon(Icons.shopping_cart, size: 30), label: 'Cart'),
+            BottomNavigationBarItem(icon: Icon(Icons.history, size: 30), label: 'Activity'),
+            BottomNavigationBarItem(icon: Icon(Icons.calendar_today, size: 30), label: 'Events'
+            ),
+          ],
+        ),
     );
   }
 
@@ -2033,6 +2091,7 @@ class _StocksPageState extends State<StocksPage> {
             const Text(
               'Your Stock is Empty',
               style: TextStyle(
+                fontFamily: "Poppins",
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.grey,
@@ -2041,7 +2100,7 @@ class _StocksPageState extends State<StocksPage> {
             const SizedBox(height: 8),
             const Text(
               'Start by adding your first item',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontFamily: "Poppins", fontSize: 16, color: Colors.grey),
             ),
             const SizedBox(height: 24),
             Row(
@@ -2107,9 +2166,13 @@ class _StocksPageState extends State<StocksPage> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
-                          title: Text(item['name']),
+                          title: Text(item['name'], style:Theme.of(context).textTheme.labelLarge),
                           subtitle: Text(
                             'Php ${item['price'].toStringAsFixed(2)}',
+                            style:Theme.of(context).textTheme.labelLarge?.copyWith(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey
+                            )
                           ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -2200,12 +2263,11 @@ class _StocksPageState extends State<StocksPage> {
           ),
         ),
         const SizedBox(width: 8),
-        Icon(_getIconForSection(title), color: color, size: 20),
+        Icon(_getIconForSection(title), color: color, size: 25),
         const SizedBox(width: 8),
         Text(
           title,
-          style: TextStyle(
-            fontSize: 16,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             fontWeight: FontWeight.w500,
             color: color,
           ),
@@ -2216,12 +2278,13 @@ class _StocksPageState extends State<StocksPage> {
             _expandedSections[title]!
                 ? Icons.keyboard_arrow_up
                 : Icons.keyboard_arrow_down,
+            size: 25,
             color: Colors.grey,
           ),
           onPressed: () => _toggleSection(title),
         ),
         IconButton(
-          icon: const Icon(Icons.settings_outlined, size: 20),
+          icon: const Icon(Icons.delete_sweep_outlined , size: 25),
           color: color,
           onPressed: () {
             _clearSection(title);
@@ -2671,6 +2734,7 @@ class _CartPageState extends State<CartPage> {
             Text(
               'Your Cart is Empty',
               style: TextStyle(
+                fontFamily: "Poppins",
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.grey,
@@ -2680,6 +2744,7 @@ class _CartPageState extends State<CartPage> {
             Text(
               'Add items from your stock to get started',
               style: TextStyle(
+                fontFamily: "Poppins",
                 fontSize: 16,
                 color: Colors.grey,
               ),
@@ -3953,7 +4018,11 @@ class SettingsPage extends StatelessWidget {
         children: [
           ListTile(
             leading: const Icon(Icons.person_outline, color: Colors.blue),
-            title: const Text('Edit Profile'),
+            title: const Text('Edit Profile',
+            style: TextStyle(
+              fontFamily: "Poppins",
+              fontSize: 22
+            )),
             onTap: () {
               Navigator.push(
                 context,
@@ -3964,7 +4033,12 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip, color: Colors.green),
-            title: const Text('Privacy Policy'),
+            title: const Text('Privacy Policy',
+              style: TextStyle(
+              fontFamily: "Poppins",
+              fontSize: 22
+              )
+            ),
             onTap: () {
               Navigator.push(
                 context,
@@ -3975,7 +4049,10 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
-            title: const Text('About'),
+            title: const Text('About',
+              style: TextStyle(
+              fontFamily: "Poppins",
+              fontSize: 22)),
             onTap: () {
               showAboutDialog(
                 context: context,
@@ -4031,17 +4108,27 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.support_agent, color: Colors.teal),
-            title: const Text('Contact Support'),
+            title: const Text('Contact Support',
+            style: TextStyle(
+            fontFamily: "Poppins",
+            fontSize: 22)
+            ),
             onTap: () => _launchEmail(context),
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('Delete Account'),
+            title: const Text('Delete Account',
+            style: TextStyle(
+            fontFamily: "Poppins",
+            fontSize: 22)),
             onTap: () => _handleDeleteAccount(context),
           ),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Logout'),
+            title: const Text('Logout',
+              style: TextStyle(
+              fontFamily: "Poppins",
+              fontSize: 22)),
             onTap: () => _handleLogout(context),
           ),
         ],

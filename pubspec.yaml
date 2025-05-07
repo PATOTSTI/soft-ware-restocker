@@ -43,6 +43,7 @@ dependencies:
   provider: ^6.1.1
   shared_preferences: ^2.2.2
   url_launcher: ^6.2.4
+  
 
 dev_dependencies:
   flutter_test:
@@ -73,7 +74,56 @@ flutter:
   uses-material-design: true
   assets:
     - lib/assets/logo.png
-    - lib/assets/
+
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: lib/assets/font/Poppins-Thin.ttf
+          weight: 100
+        - asset: lib/assets/font/Poppins-ThinItalic.ttf
+          weight: 100
+          style: italic
+        - asset: lib/assets/font/Poppins-ExtraLight.ttf
+          weight: 200
+        - asset: lib/assets/font/Poppins-ExtraLightItalic.ttf
+          weight: 200
+          style: italic
+        - asset: lib/assets/font/Poppins-Light.ttf
+          weight: 300
+        - asset: lib/assets/font/Poppins-LightItalic.ttf
+          weight: 300
+          style: italic
+        - asset: lib/assets/font/Poppins-Regular.ttf
+          weight: 400
+        - asset: lib/assets/font/Poppins-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: lib/assets/font/Poppins-Medium.ttf
+          weight: 500
+        - asset: lib/assets/font/Poppins-MediumItalic.ttf
+          weight: 500
+          style: italic
+        - asset: lib/assets/font/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: lib/assets/font/Poppins-SemiBoldItalic.ttf
+          weight: 600
+          style: italic
+        - asset: lib/assets/font/Poppins-Bold.ttf
+          weight: 700
+        - asset: lib/assets/font/Poppins-BoldItalic.ttf
+          weight: 700
+          style: italic
+        - asset: lib/assets/font/Poppins-ExtraBold.ttf
+          weight: 800
+        - asset: lib/assets/font/Poppins-ExtraBoldItalic.ttf
+          weight: 800
+          style: italic
+        - asset: lib/assets/font/Poppins-Black.ttf
+          weight: 900
+        - asset: lib/assets/font/Poppins-BlackItalic.ttf
+          weight: 900
+          style: italic
+
 
   # To add assets to your application, add an assets section, like this:
   # assets:
