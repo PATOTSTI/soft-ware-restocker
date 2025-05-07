@@ -37,6 +37,7 @@ class MyApp extends StatelessWidget {
           titleLarge: TextStyle(fontSize: 26), //Cart,Stock,Event,Activity, Sign-up
           bodyLarge: TextStyle(fontSize: 22,),
           bodyMedium: TextStyle(fontSize: 20),
+          bodySmall: TextStyle(fontSize: 18),
           labelLarge: TextStyle(fontSize: 16),
         ),
         colorScheme: ColorScheme.fromSeed(seedColor: const Color.fromRGBO(76, 175, 80, 1)),
@@ -390,7 +391,7 @@ class _LoginPageState extends State<LoginPage> {
                           Text(
                             'Log in to access your grocery lists and more.',
                             textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w300,
                               color: Colors.black87,
                             ),
