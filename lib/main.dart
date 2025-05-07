@@ -13,6 +13,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:restockr/wrapper.dart';
+import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1347,10 +1348,7 @@ class _HomePageState extends State<HomePage> {
             onConfirmPurchase: _confirmPurchase,
             onClearCart: _clearCart,
           ),
-          ActivityPage(
-            purchaseHistory: _purchaseHistory,
-            cartItems: _cartItems,
-          ),
+          ActivityPage(),
           const EventsPage(),
         ],
       ),
@@ -1463,7 +1461,6 @@ class _HomePageState extends State<HomePage> {
         // Get current stock data
         final stockDoc = await stockDocRef.get();
         if (stockDoc.exists) {
-
           // Update each section to match original quantities
           final originalDocRef = FirebaseFirestore.instance
               .collection('users')
@@ -1515,7 +1512,7 @@ class _HomePageState extends State<HomePage> {
       // Save to Firestore
       await _savePurchaseHistory();
 
-      // Reset stock to original quantities
+      // After confirming purchase, update original_stock_data to match current stock_data
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final stockDocRef = FirebaseFirestore.instance
@@ -1529,10 +1526,10 @@ class _HomePageState extends State<HomePage> {
             .collection('stocks')
             .doc('original_stock_data');
 
-        final originalDoc = await originalDocRef.get();
-        if (originalDoc.exists) {
-          final originalData = originalDoc.data() as Map<String, dynamic>;
-          await stockDocRef.set(originalData);
+        final stockDoc = await stockDocRef.get();
+        if (stockDoc.exists) {
+          final stockData = stockDoc.data() as Map<String, dynamic>;
+          await originalDocRef.set(stockData);
         }
       }
 
@@ -1610,19 +1607,14 @@ class _HomePageState extends State<HomePage> {
   Future<void> _storeShoppingEvent(
       DateTime date, PurchaseHistory purchase) async {
     try {
-      // Debug log
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
-        // Debug log
         return;
       }
-
-      // Debug log
 
       // First, close the date selection dialog
       if (mounted) {
         Navigator.pop(context);
-        // Debug log
       }
 
       // Show loading indicator
@@ -1642,16 +1634,11 @@ class _HomePageState extends State<HomePage> {
           .collection('events')
           .doc('shopping_events');
 
-      // Debug log
       // Get existing events
       final eventsDoc = await eventsRef.get();
       List<Map<String, dynamic>> events = [];
       if (eventsDoc.exists) {
-        events =
-            List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
-        // Debug log
-      } else {
-        // Debug log
+        events = List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
       }
 
       // Add new event
@@ -1664,12 +1651,12 @@ class _HomePageState extends State<HomePage> {
         },
       };
       events.add(newEvent);
-      // Debug log
 
       // Save updated events
-      // Debug log
       await eventsRef.set({'events': events});
-      // Debug log
+
+      // DO NOT reset stock to original quantities here
+      // The stock should reflect actual usage
 
       // Close loading indicator
       if (mounted) {
@@ -1685,18 +1672,13 @@ class _HomePageState extends State<HomePage> {
             backgroundColor: Colors.green,
           ),
         );
-        // Debug log
 
         // Switch to events page
         setState(() {
           _selectedIndex = 3; // Switch to Events tab
         });
-        // Debug log
       }
     } catch (e) {
-      // Debug log
-      // Debug log
-
       // Close loading indicator if it's showing
       if (mounted) {
         Navigator.pop(context); // Close loading dialog
@@ -1747,6 +1729,378 @@ class _StocksPageState extends State<StocksPage> {
     'Frozen Foods': false,
     'Snacks': false,
   };
+
+  StreamSubscription<DocumentSnapshot>? _stockSubscription;
+  StreamSubscription<DocumentSnapshot>? _originalStockSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupRealTimeListeners();
+  }
+
+  @override
+  void dispose() {
+    _stockSubscription?.cancel();
+    _originalStockSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _setupRealTimeListeners() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    // Listen to stock_data changes
+    _stockSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('stock_data')
+        .snapshots()
+        .listen((snapshot) {
+      if (snapshot.exists) {
+        final data = snapshot.data() as Map<String, dynamic>;
+        setState(() {
+          _sectionItems.clear();
+          data.forEach((section, items) {
+            _sectionItems[section] = List<Map<String, dynamic>>.from(
+              (items as List).map((item) => Map<String, dynamic>.from(item)),
+            );
+          });
+        });
+
+        // Notify parent about stock update
+        if (widget.onStockUpdate != null) {
+          Map<String, List<CartItem>> updatedStock = {};
+          _sectionItems.forEach((section, items) {
+            updatedStock[section] = items
+                .map(
+                  (item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ),
+                )
+                .toList();
+          });
+          widget.onStockUpdate!(updatedStock);
+        }
+      }
+    });
+
+    // Listen to original_stock_data changes
+    _originalStockSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('original_stock_data')
+        .snapshots()
+        .listen((snapshot) {
+      if (!snapshot.exists) {
+        // If original stock data doesn't exist, create it from current stock
+        _createOriginalStockData();
+      }
+    });
+  }
+
+  Future<void> _createOriginalStockData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final originalDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('original_stock_data');
+
+      // Create a copy of current stock data
+      Map<String, dynamic> originalData = {};
+      _sectionItems.forEach((section, items) {
+        originalData[section] = items.map((item) => Map<String, dynamic>.from(item)).toList();
+      });
+
+      await originalDocRef.set(originalData);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error creating original stock data: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Modify _updateStockImmediately to use transactions for atomic updates
+  void _updateStockImmediately(
+    String section,
+    Map<String, dynamic> item,
+    int newQuantity,
+  ) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final currentQuantity = item['quantity'] as int;
+    final quantityDifference = currentQuantity - newQuantity;
+
+    // Only show confirmation for larger deductions
+    if (quantityDifference > 5) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) => AlertDialog(
+          title: const Text('Large Stock Deduction'),
+          content: Text(
+            'You are deducting $quantityDifference ${item['name']} from stock.\n'
+            'This will add the items to your cart.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) {
+        setState(() {
+          item['quantity'] = currentQuantity;
+        });
+        return;
+      }
+    }
+
+    // Update UI immediately for better UX
+    setState(() {
+      item['quantity'] = newQuantity;
+      if (newQuantity == 0) {
+        item['isOutOfStock'] = true;
+      } else {
+        item['isOutOfStock'] = false;
+      }
+    });
+
+    // Use transaction for atomic update
+    try {
+      final stockDocRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data');
+
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(stockDocRef);
+        if (!snapshot.exists) {
+          // Instead of throwing, create the document with the section and item
+          transaction.set(stockDocRef, {
+            section: [item],
+          }, SetOptions(merge: true));
+          return;
+        }
+
+        final data = snapshot.data() as Map<String, dynamic>;
+        final sectionItems = List<Map<String, dynamic>>.from(data[section] ?? []);
+        // Find and update the item
+        final itemIndex = sectionItems.indexWhere((i) => i['name'] == item['name']);
+        if (itemIndex != -1) {
+          sectionItems[itemIndex] = Map<String, dynamic>.from(item);
+        } else {
+          sectionItems.add(Map<String, dynamic>.from(item));
+        }
+        data[section] = sectionItems;
+        transaction.set(stockDocRef, data);
+      });
+
+      // Handle cart update after successful stock update
+      if (quantityDifference != 0 && widget.onStockUpdate != null) {
+        // Get the original stock data to calculate the correct deduction
+        final originalDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('stocks')
+            .doc('original_stock_data');
+        final originalDoc = await originalDocRef.get();
+        
+        if (originalDoc.exists) {
+          final originalData = originalDoc.data() as Map<String, dynamic>;
+          final originalSectionItems = List<Map<String, dynamic>>.from(originalData[section] ?? []);
+          final originalItem = originalSectionItems.firstWhere(
+            (i) => i['name'] == item['name'],
+            orElse: () => {'quantity': 0},
+          );
+          
+          final originalQuantity = originalItem['quantity'] as int;
+          final actualDeduction = originalQuantity - newQuantity;
+          
+          if (actualDeduction > 0) {
+            final cartItem = CartItem(
+              name: item['name'] as String,
+              quantity: actualDeduction,
+              price: (item['price'] as num).toDouble(),
+              section: section,
+            );
+
+            final Map<String, List<CartItem>> cartUpdate = {};
+            cartUpdate[section] = [cartItem];
+            widget.onStockUpdate!(cartUpdate);
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Added $actualDeduction ${item['name']} to cart',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  backgroundColor: Colors.green,
+                  duration: const Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                  action: actualDeduction > 5
+                      ? SnackBarAction(
+                          label: 'View Cart',
+                          textColor: Colors.white,
+                          onPressed: () {
+                            if (mounted) {
+                              final homePage =
+                                  context.findAncestorStateOfType<_HomePageState>();
+                              if (homePage != null) {
+                                homePage.setState(() {
+                                  homePage._selectedIndex = 1;
+                                });
+                              }
+                            }
+                          },
+                        )
+                      : null,
+                ),
+              );
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Revert UI on error
+      setState(() {
+        item['quantity'] = currentQuantity;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating stock: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: Colors.white,
+              onPressed: () {
+                _updateStockImmediately(section, item, newQuantity);
+              },
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  void _clearSection(String section) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Clear $section'),
+        content:
+            Text('Are you sure you want to remove all items from $section?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() {
+        _sectionItems[section]?.clear();
+      });
+
+      // Update Firestore
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final docRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('stocks')
+              .doc('stock_data');
+          try {
+            await docRef.update({
+              section: [],
+            });
+          } catch (e) {
+            await docRef.set({
+              section: [],
+            }, SetOptions(merge: true));
+          }
+        }
+        // Notify parent about stock update immediately
+        if (widget.onStockUpdate != null) {
+          Map<String, List<CartItem>> updatedStock = {};
+          _sectionItems.forEach((section, items) {
+            updatedStock[section] = items
+                .map(
+                  (item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ),
+                )
+                .toList();
+          });
+          widget.onStockUpdate!(updatedStock);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('All items in $section have been cleared.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error clearing $section: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  void _toggleSection(String section) {
+    setState(() {
+      _expandedSections[section] = !(_expandedSections[section] ?? false);
+    });
+  }
 
   Future<void> _prePopulateStockItems() async {
     final Map<String, List<Map<String, dynamic>>> predefinedItems = {
@@ -1808,38 +2162,16 @@ class _StocksPageState extends State<StocksPage> {
         for (var entry in _sectionItems.entries) entry.key: entry.value,
       });
 
-      // Also save original stock data if not already present
+      // Also save original stock data
       final originalDocRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('stocks')
           .doc('original_stock_data');
-      final originalDoc = await originalDocRef.get();
-      if (!originalDoc.exists) {
-        await originalDocRef.set({
-          for (var entry in _sectionItems.entries) entry.key: entry.value,
-        });
-      }
-
-      // Convert and notify parent
-      Map<String, List<CartItem>> updatedStock = {};
-      _sectionItems.forEach((section, items) {
-        updatedStock[section] = items
-            .map(
-              (item) => CartItem(
-                name: item['name'],
-                quantity: item['quantity'],
-                price: (item['price'] as num).toDouble(),
-                section: section,
-              ),
-            )
-            .toList();
+      
+      await originalDocRef.set({
+        for (var entry in _sectionItems.entries) entry.key: entry.value,
       });
-
-      // Notify parent about stock update
-      if (widget.onStockUpdate != null) {
-        widget.onStockUpdate!(updatedStock);
-      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1862,222 +2194,8 @@ class _StocksPageState extends State<StocksPage> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _loadStockData();
-  }
-
-  Future<void> _loadStockData() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-
-      final docRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('stock_data');
-
-      final doc = await docRef.get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        setState(() {
-          _sectionItems.clear();
-          data.forEach((section, items) {
-            _sectionItems[section] = List<Map<String, dynamic>>.from(
-              (items as List).map((item) => Map<String, dynamic>.from(item)),
-            );
-          });
-        });
-
-        // Convert and notify parent about the loaded stock data
-        Map<String, List<CartItem>> updatedStock = {};
-        _sectionItems.forEach((section, items) {
-          updatedStock[section] = items
-              .map(
-                (item) => CartItem(
-                  name: item['name'],
-                  quantity: item['quantity'],
-                  price: (item['price'] as num).toDouble(),
-                  section: section,
-                ),
-              )
-              .toList();
-        });
-
-        // Notify parent about stock update
-        if (widget.onStockUpdate != null) {
-          widget.onStockUpdate!(updatedStock);
-        }
-      } else {
-        // If no data exists, pre-populate with default values
-        await _prePopulateStockItems();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading stock data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  bool get _isEmpty => _sectionItems.values.every((items) => items.isEmpty);
-
-  void _toggleSection(String section) {
-    setState(() {
-      _expandedSections[section] = !(_expandedSections[section] ?? false);
-    });
-  }
-
-  // Add this method to handle immediate updates
-  void _updateStockImmediately(
-    String section,
-    Map<String, dynamic> item,
-    int newQuantity,
-  ) async {
-    setState(() {
-      item['quantity'] = newQuantity;
-      if (newQuantity == 0) {
-        item['isOutOfStock'] = true;
-      } else {
-        item['isOutOfStock'] = false;
-      }
-    });
-
-    // Convert current state to CartItems format and notify parent immediately
-    final Map<String, List<CartItem>> updatedStock = {};
-    _sectionItems.forEach((section, items) {
-      updatedStock[section] = items
-          .map(
-            (item) => CartItem(
-              name: item['name'] as String,
-              quantity: item['quantity'] as int,
-              price: (item['price'] as num).toDouble(),
-              section: section,
-            ),
-          )
-          .toList();
-    });
-
-    // Notify parent about stock update immediately
-    if (widget.onStockUpdate != null) {
-      widget.onStockUpdate!(updatedStock);
-    }
-
-    // Update the entire section in Firestore
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final docRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('stocks')
-            .doc('stock_data');
-        await docRef.update({
-          section: _sectionItems[section],
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error updating stock: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-
-    // Save the cart after every deduction
-    if (widget.onStockUpdate != null) {
-      widget.onStockUpdate!(updatedStock);
-    }
-  }
-
-  void _clearSection(String section) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Clear $section'),
-        content:
-            Text('Are you sure you want to remove all items from $section?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      setState(() {
-        _sectionItems[section]?.clear();
-      });
-
-      // Update Firestore
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final docRef = FirebaseFirestore.instance
-              .collection('users')
-              .doc(user.uid)
-              .collection('stocks')
-              .doc('stock_data');
-          await docRef.update({
-            section: [],
-          });
-        }
-        // Notify parent about stock update immediately
-        if (widget.onStockUpdate != null) {
-          Map<String, List<CartItem>> updatedStock = {};
-          _sectionItems.forEach((section, items) {
-            updatedStock[section] = items
-                .map(
-                  (item) => CartItem(
-                    name: item['name'],
-                    quantity: item['quantity'],
-                    price: (item['price'] as num).toDouble(),
-                    section: section,
-                  ),
-                )
-                .toList();
-          });
-          widget.onStockUpdate!(updatedStock);
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('All items in $section have been cleared.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error clearing $section: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_isEmpty) {
+    if (_sectionItems.values.every((items) => items.isEmpty)) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2343,10 +2461,15 @@ class _StocksPageState extends State<StocksPage> {
                       .doc(user.uid)
                       .collection('stocks')
                       .doc('stock_data');
-
-                  await docRef.update({
-                    section: _sectionItems[section],
-                  });
+                  try {
+                    await docRef.update({
+                      section: _sectionItems[section],
+                    });
+                  } catch (e) {
+                    await docRef.set({
+                      section: _sectionItems[section],
+                    }, SetOptions(merge: true));
+                  }
                 }
               } catch (e) {
                 if (mounted) {
@@ -2574,11 +2697,15 @@ class _StocksPageState extends State<StocksPage> {
                               .doc(user.uid)
                               .collection('stocks')
                               .doc('stock_data');
-
-                          await docRef.update({
-                            selectedSection: _sectionItems[selectedSection],
-                          });
-
+                          try {
+                            await docRef.update({
+                              selectedSection: _sectionItems[selectedSection],
+                            });
+                          } catch (e) {
+                            await docRef.set({
+                              selectedSection: _sectionItems[selectedSection],
+                            }, SetOptions(merge: true));
+                          }
                           // Also update original_stock_data if this is a new item
                           final originalDocRef = FirebaseFirestore.instance
                               .collection('users')
@@ -2587,8 +2714,7 @@ class _StocksPageState extends State<StocksPage> {
                               .doc('original_stock_data');
                           final originalDoc = await originalDocRef.get();
                           if (originalDoc.exists) {
-                            final originalData =
-                                originalDoc.data() as Map<String, dynamic>;
+                            final originalData = originalDoc.data() as Map<String, dynamic>;
                             final List<dynamic> originalSection =
                                 List.from(originalData[selectedSection] ?? []);
                             final exists = originalSection.any((item) =>
@@ -2599,10 +2725,27 @@ class _StocksPageState extends State<StocksPage> {
                                 'quantity': quantity,
                                 'price': price,
                               });
-                              await originalDocRef.update({
-                                selectedSection: originalSection,
-                              });
+                              try {
+                                await originalDocRef.update({
+                                  selectedSection: originalSection,
+                                });
+                              } catch (e) {
+                                await originalDocRef.set({
+                                  selectedSection: originalSection,
+                                }, SetOptions(merge: true));
+                              }
                             }
+                          } else {
+                            // If original_stock_data doesn't exist, create it
+                            await originalDocRef.set({
+                              selectedSection: [
+                                {
+                                  'name': itemController.text.trim(),
+                                  'quantity': quantity,
+                                  'price': price,
+                                }
+                              ],
+                            }, SetOptions(merge: true));
                           }
                         }
                       } catch (e) {
@@ -2984,24 +3127,18 @@ class PurchaseHistory {
 }
 
 class ActivityPage extends StatefulWidget {
-  final List<PurchaseHistory> purchaseHistory;
-  final Map<String, List<CartItem>> cartItems;
-
-  const ActivityPage({
-    super.key,
-    required this.purchaseHistory,
-    required this.cartItems,
-  });
+  // Remove the props for purchaseHistory and cartItems, as we will fetch them in real-time
+  const ActivityPage({super.key});
 
   @override
   State<ActivityPage> createState() => _ActivityPageState();
 }
 
 class _ActivityPageState extends State<ActivityPage> {
-  // Basic Stats
-  int get _totalItemsInStock {
+  // Helper to calculate stats from cartItems
+  int _totalItemsInStock(Map<String, List<CartItem>> cartItems) {
     int total = 0;
-    for (var section in widget.cartItems.values) {
+    for (var section in cartItems.values) {
       for (var item in section) {
         total += item.quantity;
       }
@@ -3009,9 +3146,9 @@ class _ActivityPageState extends State<ActivityPage> {
     return total;
   }
 
-  int get _lowStockItems {
+  int _lowStockItems(Map<String, List<CartItem>> cartItems) {
     int count = 0;
-    for (var section in widget.cartItems.values) {
+    for (var section in cartItems.values) {
       for (var item in section) {
         if (item.quantity <= 5 && item.quantity > 0) {
           count++;
@@ -3021,9 +3158,9 @@ class _ActivityPageState extends State<ActivityPage> {
     return count;
   }
 
-  int get _outOfStockItems {
+  int _outOfStockItems(Map<String, List<CartItem>> cartItems) {
     int count = 0;
-    for (var section in widget.cartItems.values) {
+    for (var section in cartItems.values) {
       for (var item in section) {
         if (item.quantity == 0) {
           count++;
@@ -3033,332 +3170,383 @@ class _ActivityPageState extends State<ActivityPage> {
     return count;
   }
 
-  // Usage Trends Data
-  List<double> _calculateMonthlyUsage() {
+  // Helper to calculate monthly usage and restocking patterns from purchaseHistory
+  List<double> _calculateMonthlyUsage(List<PurchaseHistory> purchaseHistory) {
     Map<int, int> monthlyUsage = {};
     final now = DateTime.now();
-
-    // Initialize last 6 months with 0
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
       monthlyUsage[month.month] = 0;
     }
-
-    // Calculate usage for each month
-    for (var purchase in widget.purchaseHistory) {
+    for (var purchase in purchaseHistory) {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
         monthlyUsage[purchase.date.month] =
             (monthlyUsage[purchase.date.month] ?? 0) +
-                purchase.items.values
-                    .fold(0, (sum, quantity) => sum + quantity);
+                purchase.items.values.fold(0, (sum, quantity) => sum + quantity);
       }
     }
-
-    // Convert to list of last 6 months
     List<double> usage = [];
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
       usage.add(monthlyUsage[month.month]?.toDouble() ?? 0);
     }
-
     return usage;
   }
 
-  // Restocking Patterns Data
-  List<double> _calculateRestockingPatterns() {
+  List<double> _calculateRestockingPatterns(List<PurchaseHistory> purchaseHistory) {
     Map<int, int> monthlyRestocks = {};
     final now = DateTime.now();
-
-    // Initialize last 6 months with 0
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
       monthlyRestocks[month.month] = 0;
     }
-
-    // Calculate restocks for each month
-    for (var purchase in widget.purchaseHistory) {
+    for (var purchase in purchaseHistory) {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
         monthlyRestocks[purchase.date.month] =
             (monthlyRestocks[purchase.date.month] ?? 0) + 1;
       }
     }
-
-    // Convert to list of last 6 months
     List<double> restocks = [];
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i, 1);
       restocks.add(monthlyRestocks[month.month]?.toDouble() ?? 0);
     }
-
     return restocks;
   }
 
   @override
   Widget build(BuildContext context) {
-    final monthlyUsage = _calculateMonthlyUsage();
-    final monthlyRestocks = _calculateRestockingPatterns();
-    final now = DateTime.now();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Center(child: Text('Please log in to view activity'));
+    }
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Basic Stats Section
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(13),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Basic Stats',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+    // Listen to both stock_data and purchase_history in parallel
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data')
+          .snapshots(),
+      builder: (context, stockSnapshot) {
+        if (stockSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!stockSnapshot.hasData || !stockSnapshot.data!.exists) {
+          return const Center(child: Text('No stock data available.'));
+        }
+        final stockData = stockSnapshot.data!.data() as Map<String, dynamic>;
+        Map<String, List<CartItem>> realTimeCartItems = {};
+        stockData.forEach((section, items) {
+          realTimeCartItems[section] = (items as List)
+              .map((item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ))
+              .toList();
+        });
+
+        // Now listen to purchase_history
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('activity')
+              .doc('purchase_history')
+              .snapshots(),
+          builder: (context, purchaseSnapshot) {
+            if (purchaseSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            List<PurchaseHistory> realTimePurchaseHistory = [];
+            if (purchaseSnapshot.hasData && purchaseSnapshot.data!.exists) {
+              final data = purchaseSnapshot.data!.data() as Map<String, dynamic>;
+              final List<dynamic> historyList = data['history'] ?? [];
+              for (var entry in historyList) {
+                realTimePurchaseHistory.add(
+                  PurchaseHistory(
+                    date: DateTime.parse(entry['date']),
+                    amount: (entry['amount'] as num).toDouble(),
+                    items: Map<String, int>.from(entry['items'] ?? {}),
                   ),
-                ),
-                const SizedBox(height: 16),
-                _buildStatCard(
-                  'Total Items in Stock',
-                  _totalItemsInStock.toString(),
-                  Icons.inventory_2_outlined,
-                  Colors.blue,
-                ),
-                const SizedBox(height: 8),
-                _buildStatCard(
-                  'Items Running Low',
-                  _lowStockItems.toString(),
-                  Icons.warning_amber_outlined,
-                  Colors.orange,
-                ),
-                const SizedBox(height: 8),
-                _buildStatCard(
-                  'Out of Stock Items',
-                  _outOfStockItems.toString(),
-                  Icons.remove_shopping_cart_outlined,
-                  Colors.red,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Usage Trends Chart
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(13),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Usage Trends',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                );
+              }
+            }
+
+            // Now use realTimeCartItems and realTimePurchaseHistory for stats and charts
+            final monthlyUsage = _calculateMonthlyUsage(realTimePurchaseHistory);
+            final monthlyRestocks = _calculateRestockingPatterns(realTimePurchaseHistory);
+            final now = DateTime.now();
+
+            // The rest of the UI is the same, just use realTimeCartItems and realTimePurchaseHistory
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Basic Stats Section
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(13),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Basic Stats',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildStatCard(
+                          'Total Items in Stock',
+                          _totalItemsInStock(realTimeCartItems).toString(),
+                          Icons.inventory_2_outlined,
+                          Colors.blue,
+                        ),
+                        const SizedBox(height: 8),
+                        _buildStatCard(
+                          'Items Running Low',
+                          _lowStockItems(realTimeCartItems).toString(),
+                          Icons.warning_amber_outlined,
+                          Colors.orange,
+                        ),
+                        const SizedBox(height: 8),
+                        _buildStatCard(
+                          'Out of Stock Items',
+                          _outOfStockItems(realTimeCartItems).toString(),
+                          Icons.remove_shopping_cart_outlined,
+                          Colors.red,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  height: 200,
-                  child: LineChart(
-                    LineChartData(
-                      gridData: const FlGridData(show: false),
-                      titlesData: FlTitlesData(
-                        show: true,
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              final month = DateTime(
-                                now.year,
-                                now.month - 5 + value.toInt(),
-                              );
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  DateFormat('MMM').format(month),
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 12,
+                  const SizedBox(height: 24),
+                  // Usage Trends Chart
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(13),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Usage Trends',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          height: 200,
+                          child: LineChart(
+                            LineChartData(
+                              gridData: const FlGridData(show: false),
+                              titlesData: FlTitlesData(
+                                show: true,
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final month = DateTime(
+                                        now.year,
+                                        now.month - 5 + value.toInt(),
+                                      );
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Text(
+                                          DateFormat('MMM').format(month),
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              return Text(
-                                value.toInt().toString(),
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      return Text(
+                                        value.toInt().toString(),
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                      ),
-                      borderData: FlBorderData(show: false),
-                      lineBarsData: [
-                        LineChartBarData(
-                          spots: monthlyUsage.asMap().entries.map((entry) {
-                            return FlSpot(
-                              entry.key.toDouble(),
-                              entry.value,
-                            );
-                          }).toList(),
-                          isCurved: true,
-                          color: Colors.blue,
-                          barWidth: 3,
-                          isStrokeCapRound: true,
-                          dotData: const FlDotData(show: true),
-                          belowBarData: BarAreaData(
-                            show: true,
-                            color: Colors.blue.withOpacity(0.1),
+                                rightTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                topTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                              ),
+                              borderData: FlBorderData(show: false),
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: monthlyUsage.asMap().entries.map((entry) {
+                                    return FlSpot(
+                                      entry.key.toDouble(),
+                                      entry.value,
+                                    );
+                                  }).toList(),
+                                  isCurved: true,
+                                  color: Colors.blue,
+                                  barWidth: 3,
+                                  isStrokeCapRound: true,
+                                  dotData: const FlDotData(show: true),
+                                  belowBarData: BarAreaData(
+                                    show: true,
+                                    color: Colors.blue.withOpacity(0.1),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Restocking Patterns Chart
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(13),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Restocking Patterns',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  height: 200,
-                  child: BarChart(
-                    BarChartData(
-                      alignment: BarChartAlignment.spaceAround,
-                      maxY:
-                          monthlyRestocks.reduce((a, b) => a > b ? a : b) * 1.2,
-                      barTouchData: BarTouchData(enabled: false),
-                      titlesData: FlTitlesData(
-                        show: true,
-                        bottomTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              final month = DateTime(
-                                now.year,
-                                now.month - 5 + value.toInt(),
-                              );
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: Text(
-                                  DateFormat('MMM').format(month),
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 12,
+                  const SizedBox(height: 24),
+                  // Restocking Patterns Chart
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(13),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Restocking Patterns',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          height: 200,
+                          child: BarChart(
+                            BarChartData(
+                              alignment: BarChartAlignment.spaceAround,
+                              maxY: monthlyRestocks.isNotEmpty
+                                  ? monthlyRestocks.reduce((a, b) => a > b ? a : b) * 1.2
+                                  : 1,
+                              barTouchData: BarTouchData(enabled: false),
+                              titlesData: FlTitlesData(
+                                show: true,
+                                bottomTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      final month = DateTime(
+                                        now.year,
+                                        now.month - 5 + value.toInt(),
+                                      );
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: Text(
+                                          DateFormat('MMM').format(month),
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
-                              );
-                            },
-                          ),
-                        ),
-                        leftTitles: AxisTitles(
-                          sideTitles: SideTitles(
-                            showTitles: true,
-                            getTitlesWidget: (value, meta) {
-                              return Text(
-                                value.toInt().toString(),
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 12,
+                                leftTitles: AxisTitles(
+                                  sideTitles: SideTitles(
+                                    showTitles: true,
+                                    getTitlesWidget: (value, meta) {
+                                      return Text(
+                                        value.toInt().toString(),
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ),
-                              );
-                            },
+                                rightTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                                topTitles: const AxisTitles(
+                                  sideTitles: SideTitles(showTitles: false),
+                                ),
+                              ),
+                              gridData: const FlGridData(show: false),
+                              borderData: FlBorderData(show: false),
+                              barGroups: monthlyRestocks.asMap().entries.map((entry) {
+                                return BarChartGroupData(
+                                  x: entry.key,
+                                  barRods: [
+                                    BarChartRodData(
+                                      toY: entry.value,
+                                      color: entry.key == monthlyRestocks.length - 1
+                                          ? Colors.green
+                                          : Colors.grey.withAlpha(51),
+                                      width: 20,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ),
-                        rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                        topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false),
-                        ),
-                      ),
-                      gridData: const FlGridData(show: false),
-                      borderData: FlBorderData(show: false),
-                      barGroups: monthlyRestocks.asMap().entries.map((entry) {
-                        return BarChartGroupData(
-                          x: entry.key,
-                          barRods: [
-                            BarChartRodData(
-                              toY: entry.value,
-                              color: entry.key == monthlyRestocks.length - 1
-                                  ? Colors.green
-                                  : Colors.grey.withAlpha(51),
-                              width: 20,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                          ],
-                        );
-                      }).toList(),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -3551,7 +3739,8 @@ class _EventsPageState extends State<EventsPage>
               final items = Map<String, int>.from(purchase['items']);
 
               // In the _EventsPageState class, add this method to handle event deletion
-              Future<void> _deleteEvent(int index, List<Map<String, dynamic>> events) async {
+              Future<void> deleteEvent(
+                  int index, List<Map<String, dynamic>> events) async {
                 try {
                   final user = FirebaseAuth.instance.currentUser;
                   if (user == null) return;
@@ -3561,7 +3750,8 @@ class _EventsPageState extends State<EventsPage>
                     context: context,
                     builder: (BuildContext context) => AlertDialog(
                       title: const Text('Delete Event'),
-                      content: const Text('Are you sure you want to delete this shopping event?'),
+                      content: const Text(
+                          'Are you sure you want to delete this shopping event?'),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context, false),
@@ -3580,33 +3770,19 @@ class _EventsPageState extends State<EventsPage>
                   );
 
                   if (confirmed == true) {
-                    // Show loading indicator
-                    if (mounted) {
-                      showDialog(
-                        context: context,
-                        barrierDismissible: false,
-                        builder: (BuildContext context) => const Center(
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-
-                    // Remove the event from the list
+                    // Remove the event from the list immediately for better UX
                     events.removeAt(index);
 
-                    // Update Firestore
+                    // Update Firestore in the background
                     final eventsRef = FirebaseFirestore.instance
                         .collection('users')
                         .doc(user.uid)
                         .collection('events')
                         .doc('shopping_events');
 
-                    await eventsRef.set({'events': events});
-
-                    // Close loading indicator
-                    if (mounted) {
-                      Navigator.pop(context);
-                    }
+                    // Use set with merge option for better performance
+                    await eventsRef
+                        .set({'events': events}, SetOptions(merge: true));
 
                     // Show success message
                     if (mounted) {
@@ -3619,11 +3795,6 @@ class _EventsPageState extends State<EventsPage>
                     }
                   }
                 } catch (e) {
-                  // Close loading indicator if it's showing
-                  if (mounted) {
-                    Navigator.pop(context);
-                  }
-
                   // Show error message
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -3653,7 +3824,7 @@ class _EventsPageState extends State<EventsPage>
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline, color: Colors.red),
-                    onPressed: () => _deleteEvent(index, events),
+                    onPressed: () => deleteEvent(index, events),
                   ),
                   children: [
                     Padding(
@@ -3689,7 +3860,8 @@ class _EventsPageState extends State<EventsPage>
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 4),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text('${entry.key}x',
                                     style: const TextStyle(
