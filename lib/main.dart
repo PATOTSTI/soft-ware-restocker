@@ -3642,7 +3642,10 @@ class _EventsPageState extends State<EventsPage>
                   leading: const Icon(Icons.shopping_bag, color: Colors.green),
                   title: Text(
                     DateFormat('MMMM dd, yyyy').format(date),
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontFamily: "Poppins",
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
                     'Created on ${DateFormat('MMM dd, yyyy').format(purchaseDate)}',
@@ -3661,8 +3664,9 @@ class _EventsPageState extends State<EventsPage>
                           const Text(
                             'Purchase Details:',
                             style: TextStyle(
+                              fontFamily: "Poppins",
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 20,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -3670,6 +3674,8 @@ class _EventsPageState extends State<EventsPage>
                             'Total Amount: Php ${amount.toStringAsFixed(2)}',
                             style: const TextStyle(
                               color: Colors.green,
+                              fontFamily: "Poppins",
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -3685,10 +3691,15 @@ class _EventsPageState extends State<EventsPage>
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(entry.key),
+                                  Text('${entry.key}x',
+                                    style: const TextStyle(
+                                      fontFamily: "Poppins",
+                                      fontSize:16,)),
                                   Text(
                                     '${entry.value}x',
                                     style: const TextStyle(
+                                      fontFamily: "Poppins",
+                                      fontSize:16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.orange,
                                     ),
