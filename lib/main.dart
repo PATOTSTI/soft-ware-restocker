@@ -4397,9 +4397,11 @@ class NotificationPage extends StatelessWidget {
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
 
       final List events = data['events'];
       final categorized = {
+        'Yesterday': <Map<String, dynamic>>[],
         'Today': <Map<String, dynamic>>[],
         'Upcoming': <Map<String, dynamic>>[],
       };
@@ -4409,7 +4411,9 @@ class NotificationPage extends StatelessWidget {
           final date = _parseDate(event['date']);
           final eventDay = DateTime(date.year, date.month, date.day);
 
-          if (eventDay == today) {
+          if (eventDay == yesterday) {
+            categorized['Yesterday']!.add(event);
+          } else if (eventDay == today) {
             categorized['Today']!.add(event);
           } else if (eventDay.isAfter(today)) {
             categorized['Upcoming']!.add(event);
@@ -4418,7 +4422,6 @@ class NotificationPage extends StatelessWidget {
           continue;
         }
       }
-
 
       return categorized;
     });
