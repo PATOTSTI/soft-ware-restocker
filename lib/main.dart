@@ -2764,12 +2764,7 @@ class _StocksPageState extends State<StocksPage> {
                       textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                         labelText: 'Price',
-                        prefixIcon: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12.0),
-                          child: Text('₱',
-                              style: TextStyle(
-                                  fontSize: 28, fontWeight: FontWeight.bold)),
-                        ),
+                        prefixIcon: Icon(Icons.php),
                         border: OutlineInputBorder(),
                       ),
                       validator: (String? value) {
@@ -4023,7 +4018,7 @@ class _EventsPageState extends State<EventsPage>
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('${entry.key}x',
+                                  Text(entry.key,
                                       style: const TextStyle(
                                         fontFamily: "Poppins",
                                         fontSize: 16,
