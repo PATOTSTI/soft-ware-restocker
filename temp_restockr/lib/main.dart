@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast
+// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast, prefer_const_constructors
 
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
@@ -13,14 +13,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:restockr/wrapper.dart';
+import 'package:restockr/notification_service.dart';
 import 'dart:async';
-import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'dart:io';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService().initialize();
   runApp(const MyApp());
 }
 
@@ -33,24 +32,7 @@ class MyApp extends StatelessWidget {
       title: 'ReStckr',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'Poppins',
-        textTheme: const TextTheme(
-          displayLarge: TextStyle(
-              fontSize: 70,
-              fontWeight: FontWeight.w800,
-              fontStyle: FontStyle.italic), //Restckr
-          displayMedium: TextStyle(fontSize: 40, fontWeight: FontWeight.w600),
-          titleLarge:
-              TextStyle(fontSize: 26), //Cart,Stock,Event,Activity, Sign-up
-          bodyLarge: TextStyle(
-            fontSize: 22,
-          ),
-          bodyMedium: TextStyle(fontSize: 20),
-          bodySmall: TextStyle(fontSize: 18),
-          labelLarge: TextStyle(fontSize: 16),
-        ),
-        colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color.fromRGBO(76, 175, 80, 1)),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
       home: const Wrapper(),
@@ -279,7 +261,7 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (success && mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+          Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
         if (!mounted) return;
@@ -299,7 +281,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithGoogle();
       if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -318,7 +300,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithFacebook();
       if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.pushReplacementNamed(context, '/home');
       }
     } catch (e) {
       if (!mounted) return;
@@ -334,13 +316,11 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final horizontalPadding = screenWidth * 0.05;
     return Scaffold(
       backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Center(
             child: Padding(
               padding: EdgeInsets.only(
@@ -353,33 +333,34 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const SizedBox(height: 0),
+                    const SizedBox(height: 20),
                     // Logo
                     Image.asset(
                       'lib/assets/logo.png',
-                      width: screenWidth * 0.23,
-                      height: screenWidth * 0.23,
+                      width: 80,
+                      height: 80,
                       errorBuilder: (context, error, stackTrace) => const Icon(
                         Icons.shopping_bag_outlined,
                         size: 60,
                         color: Colors.white,
                       ),
                     ),
-                    const SizedBox(height: 0),
-                    // App Name
-                    Text(
-                      'ReStckr',
-                      style: Theme.of(context).textTheme.displayLarge?.copyWith(
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      'Your companion in everyday shopping.',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w600, color: Colors.white70),
-                    ),
                     const SizedBox(height: 16),
+                    // App Name
+                    const Text(
+                      'ReStckr',
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Your companion in everyday shopping.',
+                      style: TextStyle(fontSize: 16, color: Colors.white70),
+                    ),
+                    const SizedBox(height: 20),
                     // Login Form
                     Container(
                       width: double.infinity,
@@ -399,14 +380,13 @@ class _LoginPageState extends State<LoginPage> {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text(
-                            'Log in to access your grocery lists and more.',
+                          const Text(
+                            'Log in to access your grocery lists\nand more.',
                             textAlign: TextAlign.center,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      fontWeight: FontWeight.w300,
-                                      color: Colors.black87,
-                                    ),
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.black87,
+                            ),
                           ),
                           const SizedBox(height: 24),
                           // Email Field
@@ -423,7 +403,6 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               );
                             },
-                            style: Theme.of(context).textTheme.labelLarge,
                             decoration: const InputDecoration(
                               labelText: 'Email',
                               border: OutlineInputBorder(
@@ -442,7 +421,7 @@ class _LoginPageState extends State<LoginPage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 16),
                           // Password Field
                           TextFormField(
                             controller: _passwordController,
@@ -456,7 +435,6 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                               );
                             },
-                            style: Theme.of(context).textTheme.labelLarge,
                             decoration: InputDecoration(
                               labelText: 'Password',
                               border: const OutlineInputBorder(
@@ -487,38 +465,32 @@ class _LoginPageState extends State<LoginPage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 24),
                           // Login Button
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _handleLogin,
-                              style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.black,
-                                  foregroundColor: Colors.white,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  textStyle:
-                                      Theme.of(context).textTheme.bodyMedium),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                          Colors.white,
-                                        ),
-                                      ),
-                                    )
-                                  : const Text('LOGIN'),
+                          ElevatedButton(
+                            onPressed: _isLoading ? null : _handleLogin,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
+                            child: _isLoading
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Text('LOGIN'),
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 16),
                           // Forgot Password
                           Center(
                             child: TextButton(
@@ -526,17 +498,9 @@ class _LoginPageState extends State<LoginPage> {
                                 context,
                                 '/forgot-password',
                               ),
-                              child: Text(
+                              child: const Text(
                                 'Forgot password?',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.orange,
-                                      decoration: TextDecoration.underline,
-                                      decorationColor: Colors.orange,
-                                    ),
+                                style: TextStyle(color: Colors.orange),
                               ),
                             ),
                           ),
@@ -544,43 +508,32 @@ class _LoginPageState extends State<LoginPage> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text("Don't have an account?",
-                                  style:
-                                      Theme.of(context).textTheme.labelLarge),
+                              const Text("Don't have an account?"),
                               TextButton(
-                                  onPressed: () => navigateWithFade(
-                                        context,
-                                        const SignUpPage(),
-                                      ),
-                                  child: Text(
-                                    'Sign up',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .labelLarge
-                                        ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.orange,
-                                            decoration:
-                                                TextDecoration.underline,
-                                            decorationColor: Colors.orange),
-                                  )),
+                                onPressed: () => navigateWithFade(
+                                  context,
+                                  const SignUpPage(),
+                                ),
+                                child: const Text(
+                                  'Sign up',
+                                  style: TextStyle(color: Colors.orange),
+                                ),
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 16),
                           // Social Login Divider
                           const Row(
                             children: [
                               Expanded(child: Divider()),
                               Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 16),
-                                child: Text('Sign in with',
-                                    style: TextStyle(
-                                        fontFamily: "Poppins", fontSize: 16)),
+                                child: Text('Sign in with'),
                               ),
                               Expanded(child: Divider()),
                             ],
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 16),
                           // Social Login Buttons
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -592,15 +545,15 @@ class _LoginPageState extends State<LoginPage> {
                                   FontAwesomeIcons.facebook,
                                   color: Colors.blue,
                                 ),
-                                iconSize: 40,
                               ),
-                              const SizedBox(width: 14),
+                              const SizedBox(width: 16),
                               IconButton(
                                 onPressed:
                                     _isLoading ? null : _handleGoogleSignIn,
-                                icon: const FaIcon(FontAwesomeIcons.google,
-                                    color: Colors.red),
-                                iconSize: 40,
+                                icon: const FaIcon(
+                                  FontAwesomeIcons.google,
+                                  color: Colors.red,
+                                ),
                               ),
                             ],
                           ),
@@ -656,7 +609,7 @@ class _SignUpPageState extends State<SignUpPage> {
         );
         if (!mounted) return;
         if (success) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+          Navigator.pushReplacementNamed(context, '/home');
         }
       } catch (e) {
         if (!mounted) return;
@@ -676,7 +629,6 @@ class _SignUpPageState extends State<SignUpPage> {
     const accentColor = Colors.orange; // Use your app's accent color
     return Scaffold(
       backgroundColor: Colors.white,
-      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -693,36 +645,32 @@ class _SignUpPageState extends State<SignUpPage> {
                   children: [
                     // User Icon
                     Container(
-                      width: 160,
-                      height: 160,
+                      width: 100,
+                      height: 100,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        border: Border.all(
-                            color: const Color.fromRGBO(76, 175, 80, 1),
-                            width: 4),
+                        border: Border.all(color: Colors.black12, width: 2),
                       ),
                       child: const Icon(
                         Icons.person_outline,
-                        size: 100,
-                        color: Color.fromRGBO(76, 175, 80, 1),
+                        size: 60,
+                        color: Colors.black38,
                       ),
                     ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 24),
                     // Sign Up Text
-                    Text(
+                    const Text(
                       'Sign Up',
-                      style:
-                          Theme.of(context).textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                      style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
+                    const Text(
                       'Create your account',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey,
-                          ),
+                      style: TextStyle(fontSize: 16, color: Colors.grey),
                     ),
                     const SizedBox(height: 32),
                     // Full Name Field
@@ -732,11 +680,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Full name',
-                        labelStyle: TextStyle(
-                            fontFamily: "Poppins",
-                            fontSize: 22,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey),
+                        labelStyle: TextStyle(color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -761,11 +705,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
                         labelText: 'Email',
-                        labelStyle: TextStyle(
-                            fontFamily: "Poppins",
-                            fontSize: 22,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.grey),
+                        labelStyle: TextStyle(color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -793,12 +733,7 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.next,
                       decoration: InputDecoration(
                         labelText: 'Password',
-                        labelStyle: Theme.of(context)
-                            .textTheme
-                            .bodyLarge
-                            ?.copyWith(
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey),
+                        labelStyle: const TextStyle(color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
@@ -839,26 +774,22 @@ class _SignUpPageState extends State<SignUpPage> {
                       textInputAction: TextInputAction.done,
                       decoration: InputDecoration(
                         labelText: 'Confirm your password',
-                        labelStyle: Theme.of(context)
-                            .textTheme
-                            .bodyLarge
-                            ?.copyWith(
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey),
+                        labelStyle: const TextStyle(color: Colors.grey),
                         border: InputBorder.none,
                         enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Colors.black12),
                         ),
                         focusedBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: accentColor),
+                          borderSide: BorderSide(color: accentColor, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(vertical: 8),
                         suffixIcon: IconButton(
                           icon: Icon(
-                              _obscureConfirmPassword
-                                  ? Icons.visibility_off
-                                  : Icons.visibility,
-                              color: accentColor),
+                            _obscureConfirmPassword
+                                ? Icons.visibility_off
+                                : Icons.visibility,
+                            color: accentColor,
+                          ),
                           onPressed: () {
                             setState(() {
                               _obscureConfirmPassword =
@@ -890,7 +821,6 @@ class _SignUpPageState extends State<SignUpPage> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(24),
                           ),
-                          textStyle: Theme.of(context).textTheme.bodyMedium,
                           elevation: 2,
                         ),
                         child: _isLoading
@@ -919,18 +849,15 @@ class _SignUpPageState extends State<SignUpPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('Already have an account?',
-                            style: Theme.of(context).textTheme.bodyMedium),
+                        const Text('Already have an account?'),
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(),
                           child: const Text(
                             'Login',
                             style: TextStyle(
-                                fontFamily: "Poppins",
-                                fontSize: 16,
-                                color: accentColor,
-                                decoration: TextDecoration.underline,
-                                decorationColor: accentColor),
+                              color: accentColor,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -1001,18 +928,21 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
       appBar: AppBar(
         title: const Text('Reset Password'),
-        foregroundColor: Colors.white,
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 500,
+              maxHeight: MediaQuery.of(context).size.height -
+                  MediaQuery.of(context).padding.top -
+                  MediaQuery.of(context).padding.bottom,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Form(
                 key: _formKey,
                 child: Column(
@@ -1036,7 +966,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
                     const SizedBox(height: 24),
                     // Title
                     const Text(
-                      'Change Password',
+                      'Reset Password',
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -1292,13 +1222,6 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  void _showNotificationDialog() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => NotificationPage()),
-    );
-  }
-
   void _showSettingsDialog() {
     Navigator.push(
       context,
@@ -1331,29 +1254,32 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  IconData get _titleIcon {
+    switch (_selectedIndex) {
+      case 0:
+        return Icons.inventory_2_outlined;
+      case 1:
+        return Icons.shopping_bag_outlined;
+      case 2:
+        return Icons.history;
+      case 3:
+        return Icons.calendar_today;
+      default:
+        return Icons.error;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Row(
-          children: [
-            Image.asset('lib/assets/logo.png', width: 40, height: 40),
-            const SizedBox(width: 3),
-            Text(_title,
-                style: const TextStyle(
-                    fontFamily: "Poppins",
-                    fontSize: 30,
-                    fontWeight: FontWeight.w400))
-          ],
+          children: [Icon(_titleIcon), const SizedBox(width: 8), Text(_title)],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications), 
-            onPressed: _showNotificationDialog, 
-            iconSize: 25),
+          const IconButton(icon: Icon(Icons.notifications), onPressed: null),
           IconButton(
             icon: const Icon(Icons.settings),
-            iconSize: 25,
             onPressed: _showSettingsDialog,
           ),
         ],
@@ -1370,7 +1296,7 @@ class _HomePageState extends State<HomePage> {
             onConfirmPurchase: _confirmPurchase,
             onClearCart: _clearCart,
           ),
-          const ActivityPage(),
+          ActivityPage(),
           const EventsPage(),
         ],
       ),
@@ -1378,25 +1304,17 @@ class _HomePageState extends State<HomePage> {
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
-        selectedLabelStyle: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 13,
-          fontWeight: FontWeight.w400,
-        ),
         items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.inventory), label: 'Stocks'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.inventory, size: 30), label: 'Stocks'),
+            icon: Icon(Icons.shopping_cart),
+            label: 'Cart',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Activity'),
           BottomNavigationBarItem(
-              icon: Icon(Icons.shopping_cart, size: 30), label: 'Cart'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.history, size: 30), label: 'Activity'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today, size: 30), label: 'Events'),
+            icon: Icon(Icons.calendar_today),
+            label: 'Events',
+          ),
         ],
       ),
     );
@@ -1487,7 +1405,7 @@ class _HomePageState extends State<HomePage> {
         // Get current stock data
         final stockDoc = await stockDocRef.get();
         if (stockDoc.exists) {
-          // Update each section to match original quantities, but only for existing items
+          // Update each section to match original quantities
           final originalDocRef = FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
@@ -1497,33 +1415,11 @@ class _HomePageState extends State<HomePage> {
 
           if (originalDoc.exists) {
             final originalData = originalDoc.data() as Map<String, dynamic>;
-            final currentData = stockDoc.data() as Map<String, dynamic>;
 
+            // Update stock data to match original quantities
             Map<String, dynamic> updatedStockData = {};
-            currentData.forEach((section, items) {
-              final List<Map<String, dynamic>> currentItems =
-                  List<Map<String, dynamic>>.from(items);
-              final List<Map<String, dynamic>> originalItems =
-                  List<Map<String, dynamic>>.from(originalData[section] ?? []);
-              List<Map<String, dynamic>> updatedItems = [];
-              for (var curr in currentItems) {
-                final orig = originalItems.firstWhere(
-                  (item) => item['name'] == curr['name'],
-                  orElse: () => {},
-                );
-                if (orig.isNotEmpty) {
-                  // Reset quantity to original
-                  updatedItems.add({
-                    'name': curr['name'],
-                    'quantity': orig['quantity'],
-                    'price': curr['price'],
-                  });
-                } else {
-                  // Keep deleted items deleted (do not re-add)
-                  // Optionally, you could keep them with quantity 0 if you want
-                }
-              }
-              updatedStockData[section] = updatedItems;
+            originalData.forEach((section, items) {
+              updatedStockData[section] = items;
             });
 
             // Save updated stock data
@@ -1620,7 +1516,6 @@ class _HomePageState extends State<HomePage> {
   void _showShoppingDateDialog(PurchaseHistory purchase) {
     showDialog(
       context: context,
-      barrierDismissible: false, // <-- Add this line
       builder: (context) => AlertDialog(
         title: const Text('Set Shopping Date'),
         content: Column(
@@ -1640,9 +1535,9 @@ class _HomePageState extends State<HomePage> {
                   lastDate: DateTime.now().add(const Duration(days: 365)),
                 );
                 if (picked != null && mounted) {
-                  Navigator.pop(context); // Close the AlertDialog only
+                  // Store the shopping date and purchase details
                   await _storeShoppingEvent(picked, purchase);
-                  // Do NOT pop again in _storeShoppingEvent for the date picker or AlertDialog
+                  Navigator.pop(context);
                 }
               },
               child: const Text('Select Date'),
@@ -1655,29 +1550,27 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _storeShoppingEvent(
       DateTime date, PurchaseHistory purchase) async {
-    bool loadingDialogOpen = false;
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
         return;
       }
 
-      // Only pop if the dialog is open
-      if (Navigator.canPop(context)) {
-        Navigator.pop(context); // Close date selection dialog
+      // First, close the date selection dialog
+      if (mounted) {
+        Navigator.pop(context);
       }
 
       // Show loading indicator
-      if (!mounted) return;
-      loadingDialogOpen = true;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        useRootNavigator: true,
-        builder: (context) => const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
 
       final eventsRef = FirebaseFirestore.instance
           .collection('users')
@@ -1689,8 +1582,7 @@ class _HomePageState extends State<HomePage> {
       final eventsDoc = await eventsRef.get();
       List<Map<String, dynamic>> events = [];
       if (eventsDoc.exists) {
-        events =
-            List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
+        events = List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
       }
 
       // Add new event
@@ -1707,34 +1599,37 @@ class _HomePageState extends State<HomePage> {
       // Save updated events
       await eventsRef.set({'events': events});
 
-      // DO NOT reset stock to original quantities here
-      // The stock should reflect actual usage
-
-      // Close loading indicator
-      if (loadingDialogOpen && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        loadingDialogOpen = false;
-      }
-
-      if (!mounted) return;
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Shopping date set for ${DateFormat('MMMM dd, yyyy').format(date)}'),
-          backgroundColor: Colors.green,
-        ),
+      // Schedule notifications for the shopping date
+      await NotificationService().scheduleShoppingReminder(
+        date,
+        'Upcoming Shopping Day',
+        'Your shopping day is tomorrow! Don\'t forget to check your shopping list.',
       );
 
-      // Switch to events page
-      setState(() {
-        _selectedIndex = 3; // Switch to Events tab
-      });
+      // Close loading indicator
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
+      }
+
+      if (mounted) {
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Shopping date set for ${DateFormat('MMMM dd, yyyy').format(date)}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+
+        // Switch to events page
+        setState(() {
+          _selectedIndex = 3; // Switch to Events tab
+        });
+      }
     } catch (e) {
       // Close loading indicator if it's showing
-      if (loadingDialogOpen && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        loadingDialogOpen = false;
+      if (mounted) {
+        Navigator.pop(context); // Close loading dialog
       }
 
       if (mounted) {
@@ -1765,16 +1660,6 @@ class StocksPage extends StatefulWidget {
 }
 
 class _StocksPageState extends State<StocksPage> {
-  // Fixed section order
-  static const List<String> sectionOrder = [
-    'Bakery & Bread',
-    'Dairy',
-    'Meat',
-    'Seafood',
-    'Frozen Foods',
-    'Snacks',
-  ];
-
   final Map<String, List<Map<String, dynamic>>> _sectionItems = {
     'Bakery & Bread': [],
     'Dairy': [],
@@ -1881,8 +1766,7 @@ class _StocksPageState extends State<StocksPage> {
       // Create a copy of current stock data
       Map<String, dynamic> originalData = {};
       _sectionItems.forEach((section, items) {
-        originalData[section] =
-            items.map((item) => Map<String, dynamic>.from(item)).toList();
+        originalData[section] = items.map((item) => Map<String, dynamic>.from(item)).toList();
       });
 
       await originalDocRef.set(originalData);
@@ -1967,21 +1851,16 @@ class _StocksPageState extends State<StocksPage> {
         final snapshot = await transaction.get(stockDocRef);
         if (!snapshot.exists) {
           // Instead of throwing, create the document with the section and item
-          transaction.set(
-              stockDocRef,
-              {
-                section: [item],
-              },
-              SetOptions(merge: true));
+          transaction.set(stockDocRef, {
+            section: [item],
+          }, SetOptions(merge: true));
           return;
         }
 
         final data = snapshot.data() as Map<String, dynamic>;
-        final sectionItems =
-            List<Map<String, dynamic>>.from(data[section] ?? []);
+        final sectionItems = List<Map<String, dynamic>>.from(data[section] ?? []);
         // Find and update the item
-        final itemIndex =
-            sectionItems.indexWhere((i) => i['name'] == item['name']);
+        final itemIndex = sectionItems.indexWhere((i) => i['name'] == item['name']);
         if (itemIndex != -1) {
           sectionItems[itemIndex] = Map<String, dynamic>.from(item);
         } else {
@@ -1990,40 +1869,6 @@ class _StocksPageState extends State<StocksPage> {
         data[section] = sectionItems;
         transaction.set(stockDocRef, data);
       });
-
-      // --- FIX: Update original_stock_data if newQuantity > originalQuantity ---
-      final originalDocRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('original_stock_data');
-      final originalDoc = await originalDocRef.get();
-      if (originalDoc.exists) {
-        final originalData = originalDoc.data() as Map<String, dynamic>;
-        final originalSectionItems =
-            List<Map<String, dynamic>>.from(originalData[section] ?? []);
-        final originalItemIndex =
-            originalSectionItems.indexWhere((i) => i['name'] == item['name']);
-        int originalQuantity = 0;
-        if (originalItemIndex != -1) {
-          originalQuantity =
-              originalSectionItems[originalItemIndex]['quantity'] as int;
-        }
-        // If newQuantity > originalQuantity, update original_stock_data for this item
-        if (newQuantity > originalQuantity) {
-          if (originalItemIndex != -1) {
-            originalSectionItems[originalItemIndex]['quantity'] = newQuantity;
-          } else {
-            originalSectionItems.add({
-              'name': item['name'],
-              'quantity': newQuantity,
-              'price': item['price'],
-            });
-          }
-          await originalDocRef.update({section: originalSectionItems});
-        }
-      }
-      // --- END FIX ---
 
       // Handle cart update after successful stock update
       if (quantityDifference != 0 && widget.onStockUpdate != null) {
@@ -2034,87 +1879,57 @@ class _StocksPageState extends State<StocksPage> {
             .collection('stocks')
             .doc('original_stock_data');
         final originalDoc = await originalDocRef.get();
-
+        
         if (originalDoc.exists) {
           final originalData = originalDoc.data() as Map<String, dynamic>;
-          final originalSectionItems =
-              List<Map<String, dynamic>>.from(originalData[section] ?? []);
+          final originalSectionItems = List<Map<String, dynamic>>.from(originalData[section] ?? []);
           final originalItem = originalSectionItems.firstWhere(
             (i) => i['name'] == item['name'],
             orElse: () => {'quantity': 0},
           );
-
+          
           final originalQuantity = originalItem['quantity'] as int;
           final actualDeduction = originalQuantity - newQuantity;
+          
+          if (actualDeduction > 0) {
+            final cartItem = CartItem(
+              name: item['name'] as String,
+              quantity: actualDeduction,
+              price: (item['price'] as num).toDouble(),
+              section: section,
+            );
 
-          final cartItem = CartItem(
-            name: item['name'] as String,
-            quantity: actualDeduction.abs(),
-            price: (item['price'] as num).toDouble(),
-            section: section,
-          );
+            final Map<String, List<CartItem>> cartUpdate = {};
+            cartUpdate[section] = [cartItem];
+            widget.onStockUpdate!(cartUpdate);
 
-          final Map<String, List<CartItem>> cartUpdate = {};
-          cartUpdate[section] = [cartItem];
-          widget.onStockUpdate!(cartUpdate);
-
-          if (mounted) {
-            String message;
-            Color color;
-            SnackBarAction? action;
-            if (quantityDifference > 0) {
-              // Deducted from stock, added to cart
-              message =
-                  'Added ${quantityDifference.abs()} ${item['name']} to cart';
-              color = Colors.green;
-              action = quantityDifference > 5
-                  ? SnackBarAction(
-                      label: 'View Cart',
-                      textColor: Colors.white,
-                      onPressed: () {
-                        if (mounted) {
-                          final homePage =
-                              context.findAncestorStateOfType<_HomePageState>();
-                          if (homePage != null) {
-                            homePage.setState(() {
-                              homePage._selectedIndex = 1;
-                            });
-                          }
-                        }
-                      },
-                    )
-                  : null;
-            } else if (quantityDifference < 0) {
-              // Only show 'Removed from cart' if there was something in the cart to remove
-              // That is, only if originalQuantity > newQuantity (i.e., cart had positive quantity)
-              if (actualDeduction < 0 &&
-                  (originalQuantity - newQuantity) < 0 &&
-                  (originalQuantity > newQuantity)) {
-                message =
-                    'Removed ${quantityDifference.abs()} ${item['name']} from cart';
-                color = Colors.orange;
-                action = null;
-              } else {
-                message = '';
-                color = Colors.grey;
-                action = null;
-              }
-            } else {
-              message = '';
-              color = Colors.grey;
-              action = null;
-            }
-            if (message.isNotEmpty) {
+            if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    message,
+                    'Added $actualDeduction ${item['name']} to cart',
                     style: const TextStyle(color: Colors.white),
                   ),
-                  backgroundColor: color,
+                  backgroundColor: Colors.green,
                   duration: const Duration(seconds: 1),
                   behavior: SnackBarBehavior.floating,
-                  action: action,
+                  action: actualDeduction > 5
+                      ? SnackBarAction(
+                          label: 'View Cart',
+                          textColor: Colors.white,
+                          onPressed: () {
+                            if (mounted) {
+                              final homePage =
+                                  context.findAncestorStateOfType<_HomePageState>();
+                              if (homePage != null) {
+                                homePage.setState(() {
+                                  homePage._selectedIndex = 1;
+                                });
+                              }
+                            }
+                          },
+                        )
+                      : null,
                 ),
               );
             }
@@ -2301,7 +2116,7 @@ class _StocksPageState extends State<StocksPage> {
           .doc(user.uid)
           .collection('stocks')
           .doc('original_stock_data');
-
+      
       await originalDocRef.set({
         for (var entry in _sectionItems.entries) entry.key: entry.value,
       });
@@ -2342,7 +2157,6 @@ class _StocksPageState extends State<StocksPage> {
             const Text(
               'Your Stock is Empty',
               style: TextStyle(
-                fontFamily: "Poppins",
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.grey,
@@ -2351,14 +2165,13 @@ class _StocksPageState extends State<StocksPage> {
             const SizedBox(height: 8),
             const Text(
               'Start by adding your first item',
-              style: TextStyle(
-                  fontFamily: "Poppins", fontSize: 16, color: Colors.grey),
+              style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
             const SizedBox(height: 24),
             Row(
-              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Flexible(
+                Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _showAddItemBottomSheet,
                     icon: const Icon(Icons.add),
@@ -2366,28 +2179,20 @@ class _StocksPageState extends State<StocksPage> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 10),
-                      minimumSize: const Size(0, 40),
-                      textStyle: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
-                const SizedBox(width: 30),
-                Flexible(
+                const SizedBox(width: 12),
+                Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _prePopulateStockItems,
                     icon: const Icon(Icons.inventory),
-                    label: const Text('Pre-populate '),
+                    label: const Text('Pre-populate Stock'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 10, horizontal: 10),
-                      minimumSize: const Size(0, 40),
-                      textStyle: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.bold),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                   ),
                 ),
@@ -2402,11 +2207,11 @@ class _StocksPageState extends State<StocksPage> {
       children: [
         ListView.builder(
           padding: const EdgeInsets.all(16),
-          itemCount: sectionOrder.length,
+          itemCount: _sectionItems.length,
           itemBuilder: (context, index) {
-            final section = sectionOrder[index];
+            final section = _sectionItems.keys.elementAt(index);
             final color = _getColorForSection(section);
-            final items = _sectionItems[section] ?? [];
+            final items = _sectionItems[section]!;
 
             // Skip empty sections
             if (items.isEmpty) return const SizedBox.shrink();
@@ -2426,16 +2231,10 @@ class _StocksPageState extends State<StocksPage> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
-                          title: Text(item['name'],
-                              style: Theme.of(context).textTheme.labelLarge),
+                          title: Text(item['name']),
                           subtitle: Text(
-                              'Php ${item['price'].toStringAsFixed(2)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelLarge
-                                  ?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey)),
+                            'Php ${item['price'].toStringAsFixed(2)}',
+                          ),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -2525,14 +2324,15 @@ class _StocksPageState extends State<StocksPage> {
           ),
         ),
         const SizedBox(width: 8),
-        Icon(_getIconForSection(title), color: color, size: 25),
+        Icon(_getIconForSection(title), color: color, size: 20),
         const SizedBox(width: 8),
         Text(
           title,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: color,
+          ),
         ),
         const Spacer(),
         IconButton(
@@ -2540,13 +2340,12 @@ class _StocksPageState extends State<StocksPage> {
             _expandedSections[title]!
                 ? Icons.keyboard_arrow_up
                 : Icons.keyboard_arrow_down,
-            size: 25,
             color: Colors.grey,
           ),
           onPressed: () => _toggleSection(title),
         ),
         IconButton(
-          icon: const Icon(Icons.delete_sweep_outlined, size: 25),
+          icon: const Icon(Icons.settings_outlined, size: 20),
           color: color,
           onPressed: () {
             _clearSection(title);
@@ -2764,12 +2563,7 @@ class _StocksPageState extends State<StocksPage> {
                       textInputAction: TextInputAction.done,
                       decoration: const InputDecoration(
                         labelText: 'Price',
-                        prefixIcon: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12.0),
-                          child: Text('₱',
-                              style: TextStyle(
-                                  fontSize: 28, fontWeight: FontWeight.bold)),
-                        ),
+                        prefixIcon: Icon(Icons.attach_money),
                         border: OutlineInputBorder(),
                       ),
                       validator: (String? value) {
@@ -2863,8 +2657,7 @@ class _StocksPageState extends State<StocksPage> {
                               .doc('original_stock_data');
                           final originalDoc = await originalDocRef.get();
                           if (originalDoc.exists) {
-                            final originalData =
-                                originalDoc.data() as Map<String, dynamic>;
+                            final originalData = originalDoc.data() as Map<String, dynamic>;
                             final List<dynamic> originalSection =
                                 List.from(originalData[selectedSection] ?? []);
                             final exists = originalSection.any((item) =>
@@ -3027,7 +2820,6 @@ class _CartPageState extends State<CartPage> {
             Text(
               'Your Cart is Empty',
               style: TextStyle(
-                fontFamily: "Poppins",
                 fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.grey,
@@ -3037,7 +2829,6 @@ class _CartPageState extends State<CartPage> {
             Text(
               'Add items from your stock to get started',
               style: TextStyle(
-                fontFamily: "Poppins",
                 fontSize: 16,
                 color: Colors.grey,
               ),
@@ -3332,8 +3123,7 @@ class _ActivityPageState extends State<ActivityPage> {
       if (purchase.date.isAfter(DateTime(now.year, now.month - 6))) {
         monthlyUsage[purchase.date.month] =
             (monthlyUsage[purchase.date.month] ?? 0) +
-                purchase.items.values
-                    .fold(0, (sum, quantity) => sum + quantity);
+                purchase.items.values.fold(0, (sum, quantity) => sum + quantity);
       }
     }
     List<double> usage = [];
@@ -3344,8 +3134,7 @@ class _ActivityPageState extends State<ActivityPage> {
     return usage;
   }
 
-  List<double> _calculateRestockingPatterns(
-      List<PurchaseHistory> purchaseHistory) {
+  List<double> _calculateRestockingPatterns(List<PurchaseHistory> purchaseHistory) {
     Map<int, int> monthlyRestocks = {};
     final now = DateTime.now();
     for (int i = 5; i >= 0; i--) {
@@ -3415,8 +3204,7 @@ class _ActivityPageState extends State<ActivityPage> {
             }
             List<PurchaseHistory> realTimePurchaseHistory = [];
             if (purchaseSnapshot.hasData && purchaseSnapshot.data!.exists) {
-              final data =
-                  purchaseSnapshot.data!.data() as Map<String, dynamic>;
+              final data = purchaseSnapshot.data!.data() as Map<String, dynamic>;
               final List<dynamic> historyList = data['history'] ?? [];
               for (var entry in historyList) {
                 realTimePurchaseHistory.add(
@@ -3430,10 +3218,8 @@ class _ActivityPageState extends State<ActivityPage> {
             }
 
             // Now use realTimeCartItems and realTimePurchaseHistory for stats and charts
-            final monthlyUsage =
-                _calculateMonthlyUsage(realTimePurchaseHistory);
-            final monthlyRestocks =
-                _calculateRestockingPatterns(realTimePurchaseHistory);
+            final monthlyUsage = _calculateMonthlyUsage(realTimePurchaseHistory);
+            final monthlyRestocks = _calculateRestockingPatterns(realTimePurchaseHistory);
             final now = DateTime.now();
 
             // The rest of the UI is the same, just use realTimeCartItems and realTimePurchaseHistory
@@ -3570,8 +3356,7 @@ class _ActivityPageState extends State<ActivityPage> {
                               borderData: FlBorderData(show: false),
                               lineBarsData: [
                                 LineChartBarData(
-                                  spots:
-                                      monthlyUsage.asMap().entries.map((entry) {
+                                  spots: monthlyUsage.asMap().entries.map((entry) {
                                     return FlSpot(
                                       entry.key.toDouble(),
                                       entry.value,
@@ -3627,9 +3412,7 @@ class _ActivityPageState extends State<ActivityPage> {
                             BarChartData(
                               alignment: BarChartAlignment.spaceAround,
                               maxY: monthlyRestocks.isNotEmpty
-                                  ? monthlyRestocks
-                                          .reduce((a, b) => a > b ? a : b) *
-                                      1.2
+                                  ? monthlyRestocks.reduce((a, b) => a > b ? a : b) * 1.2
                                   : 1,
                               barTouchData: BarTouchData(enabled: false),
                               titlesData: FlTitlesData(
@@ -3678,15 +3461,13 @@ class _ActivityPageState extends State<ActivityPage> {
                               ),
                               gridData: const FlGridData(show: false),
                               borderData: FlBorderData(show: false),
-                              barGroups:
-                                  monthlyRestocks.asMap().entries.map((entry) {
+                              barGroups: monthlyRestocks.asMap().entries.map((entry) {
                                 return BarChartGroupData(
                                   x: entry.key,
                                   barRods: [
                                     BarChartRodData(
                                       toY: entry.value,
-                                      color: entry.key ==
-                                              monthlyRestocks.length - 1
+                                      color: entry.key == monthlyRestocks.length - 1
                                           ? Colors.green
                                           : Colors.grey.withAlpha(51),
                                       width: 20,
@@ -3944,6 +3725,9 @@ class _EventsPageState extends State<EventsPage>
                     await eventsRef
                         .set({'events': events}, SetOptions(merge: true));
 
+                    // Cancel notifications for this event
+                    await NotificationService().cancelAllNotifications();
+
                     // Show success message
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -3973,10 +3757,7 @@ class _EventsPageState extends State<EventsPage>
                   leading: const Icon(Icons.shopping_bag, color: Colors.green),
                   title: Text(
                     DateFormat('MMMM dd, yyyy').format(date),
-                    style: const TextStyle(
-                        fontFamily: "Poppins",
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   subtitle: Text(
                     'Created on ${DateFormat('MMM dd, yyyy').format(purchaseDate)}',
@@ -3995,9 +3776,8 @@ class _EventsPageState extends State<EventsPage>
                           const Text(
                             'Purchase Details:',
                             style: TextStyle(
-                              fontFamily: "Poppins",
                               fontWeight: FontWeight.bold,
-                              fontSize: 20,
+                              fontSize: 16,
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -4005,8 +3785,6 @@ class _EventsPageState extends State<EventsPage>
                             'Total Amount: Php ${amount.toStringAsFixed(2)}',
                             style: const TextStyle(
                               color: Colors.green,
-                              fontFamily: "Poppins",
-                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -4023,16 +3801,10 @@ class _EventsPageState extends State<EventsPage>
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text('${entry.key}x',
-                                      style: const TextStyle(
-                                        fontFamily: "Poppins",
-                                        fontSize: 16,
-                                      )),
+                                  Text(entry.key),
                                   Text(
                                     '${entry.value}x',
                                     style: const TextStyle(
-                                      fontFamily: "Poppins",
-                                      fontSize: 16,
                                       fontWeight: FontWeight.bold,
                                       color: Colors.orange,
                                     ),
@@ -4103,119 +3875,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _formKey = GlobalKey<FormState>();
   final _fullNameController = TextEditingController();
   final _authService = AuthService();
-  final _imagePicker = ImagePicker();
   bool _isLoading = false;
   String? _photoURL;
-  XFile? _selectedImage;
 
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
-  }
-
-  Future<void> _pickImage() async {
-    try {
-      final XFile? image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 500,
-        maxHeight: 500,
-        imageQuality: 85,
-      );
-      if (image != null) {
-        setState(() {
-          _selectedImage = image;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _takePhoto() async {
-    try {
-      final XFile? photo = await _imagePicker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 500,
-        maxHeight: 500,
-        imageQuality: 85,
-      );
-      if (photo != null) {
-        setState(() {
-          _selectedImage = photo;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error taking photo: $e')),
-        );
-      }
-    }
-  }
-
-  void _showImageSourceDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Choose Image Source'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_camera),
-                title: const Text('Take Photo'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _takePhoto();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Choose from Gallery'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickImage();
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<String?> _uploadImage() async {
-    if (_selectedImage == null) return _photoURL;
-
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return null;
-
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('profile_images')
-          .child('${user.uid}.jpg');
-
-      await storageRef.putData(
-        await _selectedImage!.readAsBytes(),
-        SettableMetadata(contentType: 'image/jpeg'),
-      );
-
-      return await storageRef.getDownloadURL();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error uploading image: $e')),
-        );
-      }
-      return null;
-    }
   }
 
   Future<void> _loadUserProfile() async {
@@ -4233,10 +3899,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
       setState(() => _isLoading = true);
 
       try {
-        String? newPhotoURL = await _uploadImage();
         final success = await _authService.updateProfile(
           _fullNameController.text.trim(),
-          newPhotoURL ?? _photoURL,
+          _photoURL,
         );
 
         if (!mounted) return;
@@ -4275,44 +3940,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: 20),
-              // Profile Picture with Edit Button
-              Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 50,
-                    backgroundImage: _selectedImage != null
-                        ? FileImage(File(_selectedImage!.path))
-                        : (_photoURL != null ? NetworkImage(_photoURL!) : null)
-                            as ImageProvider?,
-                    child: _selectedImage == null && _photoURL == null
-                        ? const Icon(Icons.person, size: 50)
-                        : null,
-                  ),
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.green,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.camera_alt, color: Colors.white),
-                        onPressed: _showImageSourceDialog,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _showImageSourceDialog,
-                icon: const Icon(Icons.add_a_photo),
-                label: const Text('Change Profile Picture'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.green,
-                ),
+              // Profile Picture
+              CircleAvatar(
+                radius: 50,
+                backgroundImage:
+                    _photoURL != null ? NetworkImage(_photoURL!) : null,
+                child: _photoURL == null
+                    ? const Icon(Icons.person, size: 50)
+                    : null,
               ),
               const SizedBox(height: 20),
               // Full Name Field
@@ -4364,124 +3999,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
   void dispose() {
     _fullNameController.dispose();
     super.dispose();
-  }
-}
-
-class NotificationPage extends StatelessWidget {
-  NotificationPage({super.key});
-
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-
-  DateTime _parseDate(dynamic dateField) {
-    if (dateField is Timestamp) {
-      return dateField.toDate();
-    } else if (dateField is String) {
-      return DateTime.parse(dateField);
-    } else {
-      throw const FormatException("Unsupported date format");
-    }
-  }
-
-  Stream<Map<String, List<Map<String, dynamic>>>> _fetchCategorizedEvents() async* {
-    final user = _auth.currentUser;
-    if (user == null) {
-      yield {};
-      return;
-    }
-
-    final docRef = _firestore
-        .collection('users')
-        .doc(user.uid)
-        .collection('events')
-        .doc('shopping_events');
-
-    yield* docRef.snapshots().map((docSnapshot) {
-      final data = docSnapshot.data();
-      if (data == null || !data.containsKey('events')) return {};
-
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      final List events = data['events'];
-      final categorized = {
-        'Today': <Map<String, dynamic>>[],
-        'Upcoming': <Map<String, dynamic>>[],
-      };
-
-      for (var event in events) {
-        try {
-          final date = _parseDate(event['date']);
-          final eventDay = DateTime(date.year, date.month, date.day);
-
-          if (eventDay == today) {
-            categorized['Today']!.add(event);
-          } else if (eventDay.isAfter(today)) {
-            categorized['Upcoming']!.add(event);
-          }
-        } catch (e) {
-          continue;
-        }
-      }
-
-
-      return categorized;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Notifications'),
-        backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
-        foregroundColor: Colors.white,
-      ),
-      body: StreamBuilder<Map<String, List<Map<String, dynamic>>>>(
-        stream: _fetchCategorizedEvents(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-
-          final categorizedEvents = snapshot.data ?? {};
-          if (categorizedEvents.values.every((list) => list.isEmpty)) {
-            return const Center(child: Text('No notification to show.'));
-          }
-
-          return ListView(
-            children: categorizedEvents.entries.expand((entry) {
-              if (entry.value.isEmpty) return <Widget>[];
-
-              return [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    entry.key,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                ...entry.value.map((shoppingEvent) {
-                  final date = _parseDate(shoppingEvent['date']);
-                  final formatted = DateFormat('MMMM dd, yyyy').format(date);
-                  final amount = shoppingEvent['purchase']?['amount'] ?? 'N/A';
-
-                  return ListTile(
-                    title: Text("Purchase: Php${amount.toString()}"),
-                    subtitle: Text("Date: $formatted"),
-                    isThreeLine: true,
-                  );
-                }).toList(),
-              ];
-            }).toList(),
-          );
-        },
-      ),
-    );
   }
 }
 
@@ -4617,8 +4134,7 @@ class SettingsPage extends StatelessWidget {
         children: [
           ListTile(
             leading: const Icon(Icons.person_outline, color: Colors.blue),
-            title: const Text('Edit Profile',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('Edit Profile'),
             onTap: () {
               Navigator.push(
                 context,
@@ -4629,8 +4145,7 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.privacy_tip, color: Colors.green),
-            title: const Text('Privacy Policy',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('Privacy Policy'),
             onTap: () {
               Navigator.push(
                 context,
@@ -4641,8 +4156,7 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.info_outline, color: Colors.blueGrey),
-            title: const Text('About',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('About'),
             onTap: () {
               showAboutDialog(
                 context: context,
@@ -4698,20 +4212,17 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.support_agent, color: Colors.teal),
-            title: const Text('Contact Support',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('Contact Support'),
             onTap: () => _launchEmail(context),
           ),
           ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('Delete Account',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('Delete Account'),
             onTap: () => _handleDeleteAccount(context),
           ),
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.red),
-            title: const Text('Logout',
-                style: TextStyle(fontFamily: "Poppins", fontSize: 22)),
+            title: const Text('Logout'),
             onTap: () => _handleLogout(context),
           ),
         ],
