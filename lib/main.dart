@@ -1292,6 +1292,13 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _showNotificationDialog() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => NotificationPage()),
+    );
+  }
+
   void _showSettingsDialog() {
     Navigator.push(
       context,
@@ -1340,8 +1347,10 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
         actions: [
-          const IconButton(
-              icon: Icon(Icons.notifications), onPressed: null, iconSize: 25),
+          IconButton(
+            icon: const Icon(Icons.notifications), 
+            onPressed: _showNotificationDialog, 
+            iconSize: 25),
           IconButton(
             icon: const Icon(Icons.settings),
             iconSize: 25,
@@ -4355,6 +4364,128 @@ class _EditProfilePageState extends State<EditProfilePage> {
   void dispose() {
     _fullNameController.dispose();
     super.dispose();
+  }
+}
+
+class NotificationPage extends StatelessWidget {
+  NotificationPage({super.key});
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  DateTime _parseDate(dynamic dateField) {
+    if (dateField is Timestamp) {
+      return dateField.toDate();
+    } else if (dateField is String) {
+      return DateTime.parse(dateField);
+    } else {
+      throw const FormatException("Unsupported date format");
+    }
+  }
+
+  Stream<Map<String, List<Map<String, dynamic>>>> _fetchCategorizedEvents() async* {
+    final user = _auth.currentUser;
+    if (user == null) {
+      yield {};
+      return;
+    }
+
+    final docRef = _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('events')
+        .doc('shopping_events');
+
+    yield* docRef.snapshots().map((docSnapshot) {
+      final data = docSnapshot.data();
+      if (data == null || !data.containsKey('events')) return {};
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final tomorrow = today.add(const Duration(days: 1));
+
+      final List events = data['events'];
+      final categorized = {
+        'Yesterday': <Map<String, dynamic>>[],
+        'Today': <Map<String, dynamic>>[],
+        'Tomorrow': <Map<String, dynamic>>[],
+      };
+
+      for (var event in events) {
+        try {
+          final date = _parseDate(event['date']);
+          final eventDay = DateTime(date.year, date.month, date.day);
+
+          if (eventDay == yesterday) {
+            categorized['Yesterday']!.add(event);
+          } else if (eventDay == today) {
+            categorized['Today']!.add(event);
+          } else if (eventDay == tomorrow) {
+            categorized['Tomorrow']!.add(event);
+          }
+        } catch (e) {
+          continue;
+        }
+      }
+
+      return categorized;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Notifications'),
+        backgroundColor: const Color.fromRGBO(76, 175, 80, 1),
+        foregroundColor: Colors.white,
+      ),
+      body: StreamBuilder<Map<String, List<Map<String, dynamic>>>>(
+        stream: _fetchCategorizedEvents(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          final categorizedEvents = snapshot.data ?? {};
+          if (categorizedEvents.values.every((list) => list.isEmpty)) {
+            return const Center(child: Text('No notification to show.'));
+          }
+
+          return ListView(
+            children: categorizedEvents.entries.expand((entry) {
+              if (entry.value.isEmpty) return <Widget>[];
+
+              return [
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    entry.key,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                ...entry.value.map((shoppingEvent) {
+                  final date = _parseDate(shoppingEvent['date']);
+                  final formatted = DateFormat('MMMM dd, yyyy').format(date);
+                  final amount = shoppingEvent['purchase']?['amount'] ?? 'N/A';
+
+                  return ListTile(
+                    title: Text("Purchase: Php${amount.toString()}"),
+                    subtitle: Text("Date: $formatted"),
+                    isThreeLine: true,
+                  );
+                }).toList(),
+              ];
+            }).toList(),
+          );
+        },
+      ),
+    );
   }
 }
 
