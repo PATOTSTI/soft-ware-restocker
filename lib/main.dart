@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast, unused_element
+// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast, unused_element, unused_field
 
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
@@ -1215,6 +1215,10 @@ class _HomePageState extends State<HomePage> {
   bool _showOverdueBanner = false;
   Timer? _bannerTimer;
   double _bannerProgress = 1.0;
+  Timer? _lowStockTimer;
+  final Set<String> _notifiedLowStockItems = {};
+  Timer? _expiryTimer;
+  final Set<String> _notifiedExpiringItems = {};
 
   @override
   void initState() {
@@ -1222,6 +1226,115 @@ class _HomePageState extends State<HomePage> {
     _loadPurchaseHistory();
     _loadStockAndRebuildCart();
     _checkOverdueEvents();
+    _startLowStockMonitor();
+    _startExpiryMonitor();
+  }
+
+  void _startLowStockMonitor() {
+    _lowStockTimer?.cancel();
+    _lowStockTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      _checkLowStockAndNotify();
+    });
+    // Also check immediately on app start
+    _checkLowStockAndNotify();
+  }
+
+  void _startExpiryMonitor() {
+    _expiryTimer?.cancel();
+    _expiryTimer = Timer.periodic(const Duration(hours: 1), (_) {
+      _checkExpiringItemsAndNotify();
+    });
+    _checkExpiringItemsAndNotify();
+  }
+
+  Future<void> _checkLowStockAndNotify() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final stockDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('stock_data');
+    final stockDoc = await stockDocRef.get();
+    if (!stockDoc.exists) return;
+    final stockData = stockDoc.data() as Map<String, dynamic>;
+    List<String> lowStockItems = [];
+    for (var section in stockData.keys) {
+      final items = List<Map<String, dynamic>>.from(stockData[section] ?? []);
+      for (var item in items) {
+        final name = item['name'] as String;
+        final qty = item['quantity'] as int;
+        if (qty <= 3 && qty > 0 && !_notifiedLowStockItems.contains(name)) {
+          lowStockItems.add(name);
+          _notifiedLowStockItems.add(name);
+        } else if (qty > 3 && _notifiedLowStockItems.contains(name)) {
+          // If restocked, allow future notifications
+          _notifiedLowStockItems.remove(name);
+        }
+      }
+    }
+    if (lowStockItems.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Low stock: ${lowStockItems.join(", ")}',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _checkExpiringItemsAndNotify() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final stockDocRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('stocks')
+        .doc('stock_data');
+    final stockDoc = await stockDocRef.get();
+    if (!stockDoc.exists) return;
+    final stockData = stockDoc.data() as Map<String, dynamic>;
+    List<String> expiringItems = [];
+    final now = DateTime.now();
+    final soon = now.add(const Duration(days: 3));
+    for (var section in stockData.keys) {
+      final items = List<Map<String, dynamic>>.from(stockData[section] ?? []);
+      for (var item in items) {
+        if (item['expiryDate'] != null) {
+          final expiry = DateTime.tryParse(item['expiryDate']);
+          if (expiry != null && expiry.isAfter(now) && expiry.isBefore(soon)) {
+            final key = '$section|${item['name']}';
+            if (!_notifiedExpiringItems.contains(key)) {
+              expiringItems.add(item['name']);
+              _notifiedExpiringItems.add(key);
+            }
+          } else if (expiry != null &&
+              expiry.isAfter(soon) &&
+              _notifiedExpiringItems.contains('$section|${item['name']}')) {
+            // If expiry is extended, allow future notifications
+            _notifiedExpiringItems.remove('$section|${item['name']}');
+          }
+        }
+      }
+    }
+    if (expiringItems.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Expiring soon: ${expiringItems.join(", ")}',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.deepOrange,
+          duration: const Duration(seconds: 5),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   void _showOverdueBannerWithTimeout() {
@@ -1249,6 +1362,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _bannerTimer?.cancel();
+    _lowStockTimer?.cancel();
+    _expiryTimer?.cancel();
     super.dispose();
   }
 
@@ -1395,6 +1510,7 @@ class _HomePageState extends State<HomePage> {
       children: [
         Scaffold(
           appBar: AppBar(
+            automaticallyImplyLeading: false,
             title: Row(
               children: [
                 Image.asset('lib/assets/logo.png', width: 40, height: 40),
@@ -1479,7 +1595,8 @@ class _HomePageState extends State<HomePage> {
                   borderRadius: BorderRadius.circular(18),
                   color: Colors.transparent,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 16),
                     decoration: BoxDecoration(
                       color: Colors.orange[50],
                       borderRadius: BorderRadius.circular(18),
@@ -1494,7 +1611,8 @@ class _HomePageState extends State<HomePage> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.notifications_active, color: Colors.orange[800]),
+                        Icon(Icons.notifications_active,
+                            color: Colors.orange[800]),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -1507,7 +1625,8 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, color: Colors.orange, size: 20),
+                          icon: const Icon(Icons.close,
+                              color: Colors.orange, size: 20),
                           onPressed: () {
                             setState(() => _showOverdueBanner = false);
                             _bannerTimer?.cancel();
@@ -1592,75 +1711,79 @@ class _HomePageState extends State<HomePage> {
 
   // In HomePage, add the clear cart method
   void _clearCart() async {
-    setState(() {
-      _cartItems.clear();
-    });
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Cart'),
+        content: const Text(
+          'Are you sure you want to clear your cart? This will reset all quantities back to their original values.',
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('CLEAR'),
+          ),
+        ],
+      ),
+    );
 
-    // Update stock data in Firestore
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final stockDocRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('stocks')
-            .doc('stock_data');
+    if (confirmed == true) {
+      setState(() {
+        _cartItems.clear();
+      });
 
-        // Get current stock data
-        final stockDoc = await stockDocRef.get();
-        if (stockDoc.exists) {
-          // Update each section to match original quantities, but only for existing items
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          // Reset stock quantities to original values
+          final stockDocRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('stocks')
+              .doc('stock_data');
           final originalDocRef = FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .collection('stocks')
               .doc('original_stock_data');
+
           final originalDoc = await originalDocRef.get();
-
           if (originalDoc.exists) {
-            final originalData = originalDoc.data() as Map<String, dynamic>;
-            final currentData = stockDoc.data() as Map<String, dynamic>;
-
-            Map<String, dynamic> updatedStockData = {};
-            currentData.forEach((section, items) {
-              final List<Map<String, dynamic>> currentItems =
-                  List<Map<String, dynamic>>.from(items);
-              final List<Map<String, dynamic>> originalItems =
-                  List<Map<String, dynamic>>.from(originalData[section] ?? []);
-              List<Map<String, dynamic>> updatedItems = [];
-              for (var curr in currentItems) {
-                final orig = originalItems.firstWhere(
-                  (item) => item['name'] == curr['name'],
-                  orElse: () => {},
-                );
-                if (orig.isNotEmpty) {
-                  // Reset quantity to original
-                  updatedItems.add({
-                    'name': curr['name'],
-                    'quantity': orig['quantity'],
-                    'price': curr['price'],
-                  });
-                } else {
-                  // Keep deleted items deleted (do not re-add)
-                  // Optionally, you could keep them with quantity 0 if you want
-                }
-              }
-              updatedStockData[section] = updatedItems;
-            });
-
-            // Save updated stock data
-            await stockDocRef.set(updatedStockData);
+            await stockDocRef.set(originalDoc.data()!);
           }
         }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error clearing cart: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Cart cleared successfully'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.all(8),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error clearing cart: $e'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(8),
+            ),
+          );
+        }
       }
     }
   }
@@ -1740,37 +1863,54 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showShoppingDateDialog(PurchaseHistory purchase) {
-    showDialog(
-      context: context,
-      barrierDismissible: false, // <-- Add this line
-      builder: (context) => AlertDialog(
-        title: const Text('Set Shopping Date'),
-        content: Column(
+    // Show a banner with date picker
+    ScaffoldMessenger.of(context).showMaterialBanner(
+      MaterialBanner(
+        padding: const EdgeInsets.all(16),
+        content: const Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
+              'Set Shopping Date',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 4),
+            Text(
               'When would you like to do your shopping?',
               style: TextStyle(fontSize: 16),
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                final DateTime? picked = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now().add(const Duration(days: 1)),
-                  firstDate: DateTime.now(),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                );
-                if (picked != null && mounted) {
-                  Navigator.pop(context); // Close the AlertDialog only
-                  await _storeShoppingEvent(picked, purchase);
-                  // Do NOT pop again in _storeShoppingEvent for the date picker or AlertDialog
-                }
-              },
-              child: const Text('Select Date'),
-            ),
           ],
         ),
+        backgroundColor: Colors.green[50],
+        leading: const Icon(Icons.calendar_today, color: Colors.green),
+        actions: [
+          TextButton(
+            onPressed: () {
+              ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+            },
+            child: const Text('LATER'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: DateTime.now().add(const Duration(days: 1)),
+                firstDate: DateTime.now(),
+                lastDate: DateTime.now().add(const Duration(days: 365)),
+              );
+              if (picked != null && mounted) {
+                ScaffoldMessenger.of(context).hideCurrentMaterialBanner();
+                await _storeShoppingEvent(picked, purchase);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('SELECT DATE'),
+          ),
+        ],
       ),
     );
   }
@@ -1954,6 +2094,8 @@ class _StocksPageState extends State<StocksPage> {
 
   StreamSubscription<DocumentSnapshot>? _stockSubscription;
   StreamSubscription<DocumentSnapshot>? _originalStockSubscription;
+  bool _selectMode = false;
+  final Set<String> _selectedItems = {}; // key: section|name
 
   @override
   void initState() {
@@ -2069,40 +2211,8 @@ class _StocksPageState extends State<StocksPage> {
     final currentQuantity = item['quantity'] as int;
     final quantityDifference = currentQuantity - newQuantity;
 
-    // Only show confirmation for larger deductions
-    if (quantityDifference > 5) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (BuildContext context) => AlertDialog(
-          title: const Text('Large Stock Deduction'),
-          content: Text(
-            'You are deducting $quantityDifference ${item['name']} from stock.\n'
-            'This will add the items to your cart.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Confirm'),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed != true) {
-        setState(() {
-          item['quantity'] = currentQuantity;
-        });
-        return;
-      }
-    }
+    // Clear any existing snackbars to prevent stacking
+    ScaffoldMessenger.of(context).clearSnackBars();
 
     // Update UI immediately for better UX
     setState(() {
@@ -2114,8 +2224,66 @@ class _StocksPageState extends State<StocksPage> {
       }
     });
 
-    // Use transaction for atomic update
+    // Show snackbar for large deductions (>5)
+    if (quantityDifference > 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Deducting $quantityDifference ${item['name']} from stock',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(8),
+          action: SnackBarAction(
+            label: 'UNDO',
+            textColor: Colors.white,
+            onPressed: () {
+              // Restore the original quantity
+              setState(() {
+                item['quantity'] = currentQuantity;
+                if (currentQuantity > 0) {
+                  item['isOutOfStock'] = false;
+                }
+              });
+              // Update Firestore with the original quantity
+              _updateFirestore(section, item, currentQuantity);
+              
+              // Show confirmation snackbar
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Restored ${item['name']} quantity to $currentQuantity'),
+                  backgroundColor: Colors.green,
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.all(8),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    // Update Firestore
+    _updateFirestore(section, item, newQuantity);
+  }
+
+  // Helper method to update Firestore with debounce
+  Future<void> _updateFirestore(String section, Map<String, dynamic> item, int quantity) async {
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
       final stockDocRef = FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -2125,180 +2293,45 @@ class _StocksPageState extends State<StocksPage> {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(stockDocRef);
         if (!snapshot.exists) {
-          // Instead of throwing, create the document with the section and item
-          transaction.set(
-              stockDocRef,
-              {
-                section: [item],
-              },
-              SetOptions(merge: true));
+          transaction.set(stockDocRef, {section: [item]}, SetOptions(merge: true));
           return;
         }
 
         final data = snapshot.data() as Map<String, dynamic>;
-        final sectionItems =
-            List<Map<String, dynamic>>.from(data[section] ?? []);
-        // Find and update the item
-        final itemIndex =
-            sectionItems.indexWhere((i) => i['name'] == item['name']);
+        final sectionItems = List<Map<String, dynamic>>.from(data[section] ?? []);
+        final itemIndex = sectionItems.indexWhere((i) => i['name'] == item['name']);
+        
         if (itemIndex != -1) {
-          sectionItems[itemIndex] = Map<String, dynamic>.from(item);
-        } else {
-          sectionItems.add(Map<String, dynamic>.from(item));
+          sectionItems[itemIndex]['quantity'] = quantity;
         }
+        
         data[section] = sectionItems;
         transaction.set(stockDocRef, data);
       });
 
-      // --- FIX: Update original_stock_data if newQuantity > originalQuantity ---
-      final originalDocRef = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('stocks')
-          .doc('original_stock_data');
-      final originalDoc = await originalDocRef.get();
-      if (originalDoc.exists) {
-        final originalData = originalDoc.data() as Map<String, dynamic>;
-        final originalSectionItems =
-            List<Map<String, dynamic>>.from(originalData[section] ?? []);
-        final originalItemIndex =
-            originalSectionItems.indexWhere((i) => i['name'] == item['name']);
-        int originalQuantity = 0;
-        if (originalItemIndex != -1) {
-          originalQuantity =
-              originalSectionItems[originalItemIndex]['quantity'] as int;
-        }
-        // If newQuantity > originalQuantity, update original_stock_data for this item
-        if (newQuantity > originalQuantity) {
-          if (originalItemIndex != -1) {
-            originalSectionItems[originalItemIndex]['quantity'] = newQuantity;
-          } else {
-            originalSectionItems.add({
-              'name': item['name'],
-              'quantity': newQuantity,
-              'price': item['price'],
-            });
-          }
-          await originalDocRef.update({section: originalSectionItems});
-        }
-      }
-      // --- END FIX ---
-
-      // Handle cart update after successful stock update
-      if (quantityDifference != 0 && widget.onStockUpdate != null) {
-        // Get the original stock data to calculate the correct deduction
-        final originalDocRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('stocks')
-            .doc('original_stock_data');
-        final originalDoc = await originalDocRef.get();
-
-        if (originalDoc.exists) {
-          final originalData = originalDoc.data() as Map<String, dynamic>;
-          final originalSectionItems =
-              List<Map<String, dynamic>>.from(originalData[section] ?? []);
-          final originalItem = originalSectionItems.firstWhere(
-            (i) => i['name'] == item['name'],
-            orElse: () => {'quantity': 0},
-          );
-
-          final originalQuantity = originalItem['quantity'] as int;
-          final actualDeduction = originalQuantity - newQuantity;
-
-          final cartItem = CartItem(
-            name: item['name'] as String,
-            quantity: actualDeduction.abs(),
-            price: (item['price'] as num).toDouble(),
-            section: section,
-          );
-
-          final Map<String, List<CartItem>> cartUpdate = {};
-          cartUpdate[section] = [cartItem];
-          widget.onStockUpdate!(cartUpdate);
-
-          if (mounted) {
-            String message;
-            Color color;
-            SnackBarAction? action;
-            if (quantityDifference > 0) {
-              // Deducted from stock, added to cart
-              message =
-                  'Added ${quantityDifference.abs()} ${item['name']} to cart';
-              color = Colors.green;
-              action = quantityDifference > 5
-                  ? SnackBarAction(
-                      label: 'View Cart',
-                      textColor: Colors.white,
-                      onPressed: () {
-                        if (mounted) {
-                          final homePage =
-                              context.findAncestorStateOfType<_HomePageState>();
-                          if (homePage != null) {
-                            homePage.setState(() {
-                              homePage._selectedIndex = 1;
-                            });
-                          }
-                        }
-                      },
-                    )
-                  : null;
-            } else if (quantityDifference < 0) {
-              // Only show 'Removed from cart' if there was something in the cart to remove
-              // That is, only if originalQuantity > newQuantity (i.e., cart had positive quantity)
-              if (actualDeduction < 0 &&
-                  (originalQuantity - newQuantity) < 0 &&
-                  (originalQuantity > newQuantity)) {
-                message =
-                    'Removed ${quantityDifference.abs()} ${item['name']} from cart';
-                color = Colors.orange;
-                action = null;
-              } else {
-                message = '';
-                color = Colors.grey;
-                action = null;
-              }
-            } else {
-              message = '';
-              color = Colors.grey;
-              action = null;
-            }
-            if (message.isNotEmpty) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    message,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  backgroundColor: color,
-                  duration: const Duration(seconds: 1),
-                  behavior: SnackBarBehavior.floating,
-                  action: action,
-                ),
-              );
-            }
-          }
-        }
+      // Notify parent about stock update
+      if (widget.onStockUpdate != null) {
+        Map<String, List<CartItem>> updatedStock = {};
+        _sectionItems.forEach((section, items) {
+          updatedStock[section] = items
+              .map((item) => CartItem(
+                    name: item['name'],
+                    quantity: item['quantity'],
+                    price: (item['price'] as num).toDouble(),
+                    section: section,
+                  ))
+              .toList();
+        });
+        widget.onStockUpdate!(updatedStock);
       }
     } catch (e) {
-      // Revert UI on error
-      setState(() {
-        item['quantity'] = currentQuantity;
-      });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error updating stock: $e'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(
-              label: 'Retry',
-              textColor: Colors.white,
-              onPressed: () {
-                _updateStockImmediately(section, item, newQuantity);
-              },
-            ),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(8),
           ),
         );
       }
@@ -2485,6 +2518,158 @@ class _StocksPageState extends State<StocksPage> {
     }
   }
 
+  void _toggleSelectMode() {
+    setState(() {
+      _selectMode = !_selectMode;
+      if (!_selectMode) _selectedItems.clear();
+    });
+  }
+
+  void _toggleSelectItem(String section, String name) {
+    final key = '$section|$name';
+    setState(() {
+      if (_selectedItems.contains(key)) {
+        _selectedItems.remove(key);
+      } else {
+        _selectedItems.add(key);
+      }
+    });
+  }
+
+  void _batchDeleteSelected() async {
+    if (_selectedItems.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Selected Items'),
+        content: Text(
+            'Are you sure you want to delete ${_selectedItems.length} selected item(s)?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    setState(() {
+      for (var key in _selectedItems) {
+        final parts = key.split('|');
+        final section = parts[0];
+        final name = parts[1];
+        _sectionItems[section]?.removeWhere((item) => item['name'] == name);
+      }
+    });
+    // Update Firestore
+    try {
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data');
+      await docRef.set({
+        for (var entry in _sectionItems.entries) entry.key: entry.value,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Deleted ${_selectedItems.length} item(s).'),
+              backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Error deleting items: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+    }
+    setState(() {
+      _selectedItems.clear();
+      _selectMode = false;
+    });
+  }
+
+  void _batchUpdateQuantity() async {
+    if (_selectedItems.isEmpty) return;
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Update Quantity'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'New quantity'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final qty = int.tryParse(controller.text);
+    if (qty == null || qty < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Invalid quantity'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+    setState(() {
+      for (var key in _selectedItems) {
+        final parts = key.split('|');
+        final section = parts[0];
+        final name = parts[1];
+        final idx = _sectionItems[section]
+                ?.indexWhere((item) => item['name'] == name) ??
+            -1;
+        if (idx != -1) {
+          _sectionItems[section]![idx]['quantity'] = qty;
+        }
+      }
+    });
+    // Update Firestore
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final docRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data');
+      await docRef.set({
+        for (var entry in _sectionItems.entries) entry.key: entry.value,
+      });
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text('Updated quantity for ${_selectedItems.length} item(s).'),
+            backgroundColor: Colors.green),
+      );
+    }
+    setState(() {
+      _selectedItems.clear();
+      _selectMode = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_sectionItems.values.every((items) => items.isEmpty)) {
@@ -2559,113 +2744,216 @@ class _StocksPageState extends State<StocksPage> {
 
     return Stack(
       children: [
-        ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: sectionOrder.length,
-          itemBuilder: (context, index) {
-            final section = sectionOrder[index];
-            final color = _getColorForSection(section);
-            final items = _sectionItems[section] ?? [];
-
-            // Skip empty sections
-            if (items.isEmpty) return const SizedBox.shrink();
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildSectionHeader(section, color),
-                if (_expandedSections[section]!) ...[
-                  const SizedBox(height: 8),
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: items.length,
-                    itemBuilder: (context, itemIndex) {
-                      final item = items[itemIndex];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          title: Text(item['name'],
-                              style: Theme.of(context).textTheme.labelLarge),
-                          subtitle: Text(
-                              'Php ${item['price'].toStringAsFixed(2)}',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelLarge
-                                  ?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.grey)),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.remove_circle_outline),
-                                color: Colors.red,
-                                onPressed: () {
-                                  final newQuantity =
-                                      (item['quantity'] as int) - 1;
-                                  if (newQuantity >= 0) {
-                                    // Only allow quantities >= 0
-                                    _updateStockImmediately(
-                                        section, item, newQuantity);
-                                  }
-                                },
-                              ),
-                              Container(
+        Column(
+          children: [
+            if (_selectMode && _selectedItems.isNotEmpty)
+              Material(
+                elevation: 8,
+                color: Colors.grey[100],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            Text(
+                              '${_selectedItems.length} selected',
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.delete, size: 18),
+                              label: const Text('Delete',
+                                  style: TextStyle(fontSize: 14)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: (item['quantity'] as int) == 0
-                                      ? Colors.red.withOpacity(0.1)
-                                      : Colors.blue.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  '${item['quantity']}',
-                                  style: TextStyle(
-                                    color: (item['quantity'] as int) == 0
-                                        ? Colors.red
-                                        : Colors.blue,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                                    horizontal: 8, vertical: 8),
+                                minimumSize: const Size(0, 36),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.add_circle_outline),
-                                color: Colors.green,
-                                onPressed: () {
-                                  final newQuantity =
-                                      (item['quantity'] as int) + 1;
-                                  _updateStockImmediately(
-                                      section, item, newQuantity);
-                                },
+                              onPressed: _batchDeleteSelected,
+                            ),
+                            const SizedBox(width: 4),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.edit, size: 18),
+                              label: const Text('Update Qty',
+                                  style: TextStyle(fontSize: 14)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 8),
+                                minimumSize: const Size(0, 36),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                               ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline),
-                                color: Colors.red,
-                                onPressed: () =>
-                                    _showDeleteDialog(section, item),
-                              ),
-                            ],
-                          ),
+                              onPressed: _batchUpdateQuantity,
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: _toggleSelectMode,
+                              tooltip: 'Cancel',
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                ],
-                const SizedBox(height: 16),
-              ],
-            );
-          },
+                      ),
+                    ),
+                    const Divider(height: 1, thickness: 1),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: sectionOrder.length,
+                itemBuilder: (context, index) {
+                  final section = sectionOrder[index];
+                  final color = _getColorForSection(section);
+                  final items = _sectionItems[section] ?? [];
+
+                  // Skip empty sections
+                  if (items.isEmpty) return const SizedBox.shrink();
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionHeader(section, color),
+                      if (_expandedSections[section]!) ...[
+                        const SizedBox(height: 8),
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: items.length,
+                          itemBuilder: (context, itemIndex) {
+                            final item = items[itemIndex];
+                            final key = '$section|${item['name']}';
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: ListTile(
+                                leading: _selectMode
+                                    ? Checkbox(
+                                        value: _selectedItems.contains(key),
+                                        onChanged: (_) => _toggleSelectItem(
+                                            section, item['name']),
+                                      )
+                                    : null,
+                                title: Text(item['name'],
+                                    style:
+                                        Theme.of(context).textTheme.labelLarge),
+                                subtitle: Text(
+                                  'Php ${item['price'].toStringAsFixed(2)}',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelLarge
+                                      ?.copyWith(
+                                          fontWeight: FontWeight.w500,
+                                          color: Colors.grey),
+                                ),
+                                trailing: !_selectMode
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(
+                                                Icons.remove_circle_outline),
+                                            color: Colors.red,
+                                            onPressed: () {
+                                              final newQuantity =
+                                                  (item['quantity'] as int) - 1;
+                                              if (newQuantity >= 0) {
+                                                _updateStockImmediately(
+                                                    section, item, newQuantity);
+                                              }
+                                            },
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 12, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  (item['quantity'] as int) == 0
+                                                      ? Colors.red
+                                                          .withOpacity(0.1)
+                                                      : Colors.blue
+                                                          .withOpacity(0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: Text(
+                                              '${item['quantity']}',
+                                              style: TextStyle(
+                                                color:
+                                                    (item['quantity'] as int) ==
+                                                            0
+                                                        ? Colors.red
+                                                        : Colors.blue,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                                Icons.add_circle_outline),
+                                            color: Colors.green,
+                                            onPressed: () {
+                                              final newQuantity =
+                                                  (item['quantity'] as int) + 1;
+                                              _updateStockImmediately(
+                                                  section, item, newQuantity);
+                                            },
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                                Icons.delete_outline),
+                                            color: Colors.red,
+                                            onPressed: () => _showDeleteDialog(
+                                                section, item),
+                                          ),
+                                        ],
+                                      )
+                                    : null,
+                                onLongPress: !_selectMode
+                                    ? () => setState(() {
+                                          _selectMode = true;
+                                          _selectedItems.add(key);
+                                        })
+                                    : null,
+                                onTap: _selectMode
+                                    ? () =>
+                                        _toggleSelectItem(section, item['name'])
+                                    : null,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
         ),
         Positioned(
           right: 16,
           bottom: 16,
-          child: FloatingActionButton(
-            heroTag: 'add_item',
-            onPressed: _showAddItemBottomSheet,
-            backgroundColor: Colors.green,
-            child: const Icon(Icons.add, color: Colors.white),
+          child: Visibility(
+            visible: !_selectMode,
+            child: FloatingActionButton(
+              heroTag: 'add_item',
+              onPressed: _showAddItemBottomSheet,
+              backgroundColor: Colors.green,
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
           ),
         ),
       ],
@@ -2818,6 +3106,7 @@ class _StocksPageState extends State<StocksPage> {
         TextEditingController(text: '1');
     final TextEditingController priceController =
         TextEditingController(text: '0.0');
+    DateTime? expiryDate;
     final formKey = GlobalKey<FormState>();
 
     showModalBottomSheet(
@@ -2826,256 +3115,289 @@ class _StocksPageState extends State<StocksPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (BuildContext context) => Padding(
-        padding: EdgeInsets.only(
-          left: 24,
-          right: 24,
-          top: 24,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const Text(
-                'Add New Item',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 20),
-              DropdownButtonFormField<String>(
-                value: selectedSection,
-                decoration: const InputDecoration(
-                  labelText: 'Category',
-                  prefixIcon: Icon(Icons.category),
-                  border: OutlineInputBorder(),
-                ),
-                items: _expandedSections.keys.map((String section) {
-                  return DropdownMenuItem<String>(
-                    value: section,
-                    child: Text(section),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  if (newValue != null) {
-                    selectedSection = newValue;
-                  }
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: itemController,
-                autofocus: true,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Item Name',
-                  hintText: 'Enter item name',
-                  prefixIcon: Icon(Icons.edit),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (String? value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Please enter an item name';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: quantityController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Quantity',
-                        prefixIcon: Icon(Icons.confirmation_number),
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (String? value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Enter quantity';
-                        }
-                        final qty = int.tryParse(value);
-                        if (qty == null || qty < 1) {
-                          return 'Enter a valid quantity';
-                        }
-                        return null;
-                      },
-                    ),
+      builder: (BuildContext context) => StatefulBuilder(
+        builder: (context, setModalState) => Padding(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: priceController,
-                      keyboardType:
-                          const TextInputType.numberWithOptions(decimal: true),
-                      textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(
-                        labelText: 'Price',
-                        prefixIcon: Icon(Icons.php),
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (String? value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Enter price';
-                        }
-                        final price = double.tryParse(value);
-                        if (price == null || price < 0) {
-                          return 'Enter a valid price';
-                        }
-                        return null;
-                      },
-                    ),
+                ),
+                const Text(
+                  'Add New Item',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 20),
+                DropdownButtonFormField<String>(
+                  value: selectedSection,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    prefixIcon: Icon(Icons.category),
+                    border: OutlineInputBorder(),
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Item',
-                      style:
-                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () async {
-                    if (formKey.currentState!.validate()) {
-                      final quantity =
-                          int.tryParse(quantityController.text) ?? 0;
-                      final price =
-                          double.tryParse(priceController.text) ?? 0.0;
-
-                      setState(() {
-                        _sectionItems[selectedSection]!.add({
-                          'name': itemController.text.trim(),
-                          'quantity': quantity,
-                          'price': price,
-                        });
+                  items: _expandedSections.keys.map((String section) {
+                    return DropdownMenuItem<String>(
+                      value: section,
+                      child: Text(section),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    if (newValue != null) {
+                      setModalState(() {
+                        selectedSection = newValue;
                       });
-
-                      // Convert and notify parent immediately
-                      final Map<String, List<CartItem>> updatedStock = {};
-                      _sectionItems.forEach((section, items) {
-                        updatedStock[section] = items
-                            .map(
-                              (item) => CartItem(
-                                name: item['name'] as String,
-                                quantity: item['quantity'] as int,
-                                price: (item['price'] as num).toDouble(),
-                                section: section,
-                              ),
-                            )
-                            .toList();
-                      });
-
-                      // Notify parent about stock update immediately
-                      if (widget.onStockUpdate != null) {
-                        widget.onStockUpdate!(updatedStock);
-                      }
-
-                      // Update Firestore
-                      try {
-                        final user = FirebaseAuth.instance.currentUser;
-                        if (user != null) {
-                          final docRef = FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(user.uid)
-                              .collection('stocks')
-                              .doc('stock_data');
-                          try {
-                            await docRef.update({
-                              selectedSection: _sectionItems[selectedSection],
-                            });
-                          } catch (e) {
-                            await docRef.set({
-                              selectedSection: _sectionItems[selectedSection],
-                            }, SetOptions(merge: true));
-                          }
-                          // Also update original_stock_data if this is a new item
-                          final originalDocRef = FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(user.uid)
-                              .collection('stocks')
-                              .doc('original_stock_data');
-                          final originalDoc = await originalDocRef.get();
-                          if (originalDoc.exists) {
-                            final originalData =
-                                originalDoc.data() as Map<String, dynamic>;
-                            final List<dynamic> originalSection =
-                                List.from(originalData[selectedSection] ?? []);
-                            final exists = originalSection.any((item) =>
-                                item['name'] == itemController.text.trim());
-                            if (!exists) {
-                              originalSection.add({
-                                'name': itemController.text.trim(),
-                                'quantity': quantity,
-                                'price': price,
-                              });
-                              try {
-                                await originalDocRef.update({
-                                  selectedSection: originalSection,
-                                });
-                              } catch (e) {
-                                await originalDocRef.set({
-                                  selectedSection: originalSection,
-                                }, SetOptions(merge: true));
-                              }
-                            }
-                          } else {
-                            // If original_stock_data doesn't exist, create it
-                            await originalDocRef.set({
-                              selectedSection: [
-                                {
-                                  'name': itemController.text.trim(),
-                                  'quantity': quantity,
-                                  'price': price,
-                                }
-                              ],
-                            }, SetOptions(merge: true));
-                          }
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Error updating stock: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                        }
-                      }
-
-                      Navigator.pop(context);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                              '${itemController.text.trim()} added successfully'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
                     }
                   },
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: itemController,
+                  autofocus: true,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Item Name',
+                    hintText: 'Enter item name',
+                    prefixIcon: Icon(Icons.edit),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (String? value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Please enter an item name';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: quantityController,
+                        keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Quantity',
+                          prefixIcon: Icon(Icons.confirmation_number),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (String? value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Enter quantity';
+                          }
+                          final qty = int.tryParse(value);
+                          if (qty == null || qty < 1) {
+                            return 'Enter a valid quantity';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        controller: priceController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Price',
+                          prefixIcon: Icon(Icons.php),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (String? value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Enter price';
+                          }
+                          final price = double.tryParse(value);
+                          if (price == null || price < 0) {
+                            return 'Enter a valid price';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.event),
+                        label: Text(expiryDate == null
+                            ? 'Set Expiry Date (optional)'
+                            : 'Expiry: \\${expiryDate!.toLocal().toString().split(' ')[0]}'),
+                        onPressed: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: DateTime.now(),
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now()
+                                .add(const Duration(days: 365 * 5)),
+                          );
+                          if (picked != null) {
+                            setModalState(() {
+                              expiryDate = picked;
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Item',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () async {
+                      if (formKey.currentState!.validate()) {
+                        final quantity =
+                            int.tryParse(quantityController.text) ?? 0;
+                        final price =
+                            double.tryParse(priceController.text) ?? 0.0;
+                        setState(() {
+                          _sectionItems[selectedSection]!.add({
+                            'name': itemController.text.trim(),
+                            'quantity': quantity,
+                            'price': price,
+                            if (expiryDate != null)
+                              'expiryDate': expiryDate!.toIso8601String(),
+                          });
+                        });
+                        // ... rest of add logic ...
+
+                        // Convert and notify parent immediately
+                        final Map<String, List<CartItem>> updatedStock = {};
+                        _sectionItems.forEach((section, items) {
+                          updatedStock[section] = items
+                              .map(
+                                (item) => CartItem(
+                                  name: item['name'] as String,
+                                  quantity: item['quantity'] as int,
+                                  price: (item['price'] as num).toDouble(),
+                                  section: section,
+                                ),
+                              )
+                              .toList();
+                        });
+
+                        // Notify parent about stock update immediately
+                        if (widget.onStockUpdate != null) {
+                          widget.onStockUpdate!(updatedStock);
+                        }
+
+                        // Update Firestore
+                        try {
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null) {
+                            final docRef = FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('stocks')
+                                .doc('stock_data');
+                            try {
+                              await docRef.update({
+                                selectedSection: _sectionItems[selectedSection],
+                              });
+                            } catch (e) {
+                              await docRef.set({
+                                selectedSection: _sectionItems[selectedSection],
+                              }, SetOptions(merge: true));
+                            }
+                            // Also update original_stock_data if this is a new item
+                            final originalDocRef = FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('stocks')
+                                .doc('original_stock_data');
+                            final originalDoc = await originalDocRef.get();
+                            if (originalDoc.exists) {
+                              final originalData =
+                                  originalDoc.data() as Map<String, dynamic>;
+                              final List<dynamic> originalSection = List.from(
+                                  originalData[selectedSection] ?? []);
+                              final exists = originalSection.any((item) =>
+                                  item['name'] == itemController.text.trim());
+                              if (!exists) {
+                                originalSection.add({
+                                  'name': itemController.text.trim(),
+                                  'quantity': quantity,
+                                  'price': price,
+                                });
+                                try {
+                                  await originalDocRef.update({
+                                    selectedSection: originalSection,
+                                  });
+                                } catch (e) {
+                                  await originalDocRef.set({
+                                    selectedSection: originalSection,
+                                  }, SetOptions(merge: true));
+                                }
+                              }
+                            } else {
+                              // If original_stock_data doesn't exist, create it
+                              await originalDocRef.set({
+                                selectedSection: [
+                                  {
+                                    'name': itemController.text.trim(),
+                                    'quantity': quantity,
+                                    'price': price,
+                                  }
+                                ],
+                              }, SetOptions(merge: true));
+                            }
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Error updating stock: $e'),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                '${itemController.text.trim()} added successfully'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -3520,6 +3842,51 @@ class _ActivityPageState extends State<ActivityPage> {
     return restocks;
   }
 
+  // Shopping suggestion logic
+  List<String> _getShoppingSuggestions(
+      List<PurchaseHistory> history, Map<String, List<CartItem>> stock) {
+    // Map of item name to list of purchase dates
+    Map<String, List<DateTime>> itemPurchaseDates = {};
+    for (var purchase in history) {
+      purchase.items.forEach((item, qty) {
+        if (!itemPurchaseDates.containsKey(item)) {
+          itemPurchaseDates[item] = [];
+        }
+        itemPurchaseDates[item]!.add(purchase.date);
+      });
+    }
+    List<String> suggestions = [];
+    for (var entry in itemPurchaseDates.entries) {
+      final item = entry.key;
+      final dates = entry.value..sort();
+      if (dates.length < 2) {
+        continue; // Need at least 2 purchases to find interval
+      }
+      // Calculate average interval in days
+      List<int> intervals = [];
+      for (int i = 1; i < dates.length; i++) {
+        intervals.add(dates[i].difference(dates[i - 1]).inDays);
+      }
+      final avgInterval = intervals.reduce((a, b) => a + b) ~/ intervals.length;
+      final lastPurchase = dates.last;
+      // Find current stock for this item
+      int currentQty = 0;
+      for (var section in stock.values) {
+        for (var cartItem in section) {
+          if (cartItem.name == item) {
+            currentQty = cartItem.quantity;
+          }
+        }
+      }
+      // Suggest if running low and enough days have passed since last purchase
+      if (currentQty <= 3 &&
+          DateTime.now().difference(lastPurchase).inDays >= avgInterval) {
+        suggestions.add('$item (every $avgInterval days)');
+      }
+    }
+    return suggestions;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -3583,6 +3950,10 @@ class _ActivityPageState extends State<ActivityPage> {
               }
             }
 
+            // Shopping suggestions
+            final suggestions = _getShoppingSuggestions(
+                realTimePurchaseHistory, realTimeCartItems);
+
             // Now use realTimeCartItems and realTimePurchaseHistory for stats and charts
             final monthlyUsage =
                 _calculateMonthlyUsage(realTimePurchaseHistory);
@@ -3590,12 +3961,49 @@ class _ActivityPageState extends State<ActivityPage> {
                 _calculateRestockingPatterns(realTimePurchaseHistory);
             final now = DateTime.now();
 
-            // The rest of the UI is the same, just use realTimeCartItems and realTimePurchaseHistory
             return SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (suggestions.isNotEmpty)
+                    Card(
+                      color: Colors.yellow[50],
+                      elevation: 2,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.lightbulb,
+                                    color: Colors.orange[800]),
+                                const SizedBox(width: 8),
+                                Text('Shopping Suggestions',
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                        color: Colors.orange[900])),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ...suggestions.map((s) => Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 2),
+                                  child: Text('• $s',
+                                      style: const TextStyle(fontSize: 16)),
+                                )),
+                            const SizedBox(height: 4),
+                            const Text(
+                                'Based on your purchase patterns and current stock.',
+                                style: TextStyle(
+                                    fontSize: 13, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
                   // Basic Stats Section
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -4881,7 +5289,7 @@ class SettingsPage extends StatelessWidget {
     try {
       await _authService.signOut();
       if (!context.mounted) return;
-      Navigator.pushReplacementNamed(context, '/');
+      Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
