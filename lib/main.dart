@@ -1,4 +1,4 @@
-// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast
+// ignore_for_file: use_build_context_synchronously, avoid_types_as_parameter_names, deprecated_member_use, unnecessary_cast, unused_element
 
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
@@ -279,7 +279,8 @@ class _LoginPageState extends State<LoginPage> {
         );
 
         if (success && mounted) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+          Navigator.of(context)
+              .pushNamedAndRemoveUntil('/home', (route) => false);
         }
       } catch (e) {
         if (!mounted) return;
@@ -299,7 +300,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithGoogle();
       if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -318,7 +320,8 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final success = await _authService.signInWithFacebook();
       if (success && mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil('/home', (route) => false);
       }
     } catch (e) {
       if (!mounted) return;
@@ -656,7 +659,8 @@ class _SignUpPageState extends State<SignUpPage> {
         );
         if (!mounted) return;
         if (success) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
+          Navigator.of(context)
+              .pushNamedAndRemoveUntil('/home', (route) => false);
         }
       } catch (e) {
         if (!mounted) return;
@@ -1208,12 +1212,66 @@ class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
   final List<PurchaseHistory> _purchaseHistory = [];
   final Map<String, List<CartItem>> _cartItems = {};
+  bool _showOverdueBanner = false;
+  Timer? _bannerTimer;
+  double _bannerProgress = 1.0;
 
   @override
   void initState() {
     super.initState();
     _loadPurchaseHistory();
     _loadStockAndRebuildCart();
+    _checkOverdueEvents();
+  }
+
+  void _showOverdueBannerWithTimeout() {
+    setState(() {
+      _showOverdueBanner = true;
+      _bannerProgress = 1.0;
+    });
+    _bannerTimer?.cancel();
+    const duration = Duration(seconds: 5);
+    const int tickMs = 50;
+    int elapsed = 0;
+    _bannerTimer =
+        Timer.periodic(const Duration(milliseconds: tickMs), (timer) {
+      elapsed += tickMs;
+      setState(() {
+        _bannerProgress = 1.0 - (elapsed / duration.inMilliseconds);
+      });
+      if (elapsed >= duration.inMilliseconds) {
+        timer.cancel();
+        if (mounted) setState(() => _showOverdueBanner = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _bannerTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkOverdueEvents() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final eventsRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('events')
+        .doc('shopping_events');
+    final eventsDoc = await eventsRef.get();
+    if (eventsDoc.exists) {
+      final List events = eventsDoc.data()?['events'] ?? [];
+      final now = DateTime.now();
+      final hasOverdue = events.any((event) {
+        final eventDate = DateTime.parse(event['date']);
+        return eventDate.isBefore(DateTime(now.year, now.month, now.day));
+      });
+      if (hasOverdue && mounted) {
+        _showOverdueBannerWithTimeout();
+      }
+    }
   }
 
   Future<void> _loadStockAndRebuildCart() async {
@@ -1333,72 +1391,136 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset('lib/assets/logo.png', width: 40, height: 40),
-            const SizedBox(width: 3),
-            Text(_title,
-                style: const TextStyle(
-                    fontFamily: "Poppins",
-                    fontSize: 30,
-                    fontWeight: FontWeight.w400))
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications), 
-            onPressed: _showNotificationDialog, 
-            iconSize: 25),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            iconSize: 25,
-            onPressed: _showSettingsDialog,
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            title: Row(
+              children: [
+                Image.asset('lib/assets/logo.png', width: 40, height: 40),
+                const SizedBox(width: 3),
+                Text(_title,
+                    style: const TextStyle(
+                        fontFamily: "Poppins",
+                        fontSize: 30,
+                        fontWeight: FontWeight.w400))
+              ],
+            ),
+            actions: [
+              IconButton(
+                  icon: const Icon(Icons.notifications),
+                  onPressed: _showNotificationDialog,
+                  iconSize: 25),
+              IconButton(
+                icon: const Icon(Icons.settings),
+                iconSize: 25,
+                onPressed: _showSettingsDialog,
+              ),
+            ],
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          StocksPage(
-            cartItems: _cartItems,
-            onStockUpdate: _updateCartFromStock,
+          body: IndexedStack(
+            index: _selectedIndex,
+            children: [
+              StocksPage(
+                cartItems: _cartItems,
+                onStockUpdate: _updateCartFromStock,
+              ),
+              CartPage(
+                cartItems: _cartItems,
+                onConfirmPurchase: _confirmPurchase,
+                onClearCart: _clearCart,
+              ),
+              const ActivityPage(),
+              const EventsPage(),
+            ],
           ),
-          CartPage(
-            cartItems: _cartItems,
-            onConfirmPurchase: _confirmPurchase,
-            onClearCart: _clearCart,
+          bottomNavigationBar: BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: _onItemTapped,
+            type: BottomNavigationBarType.fixed,
+            selectedLabelStyle: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontFamily: 'Poppins',
+              fontSize: 13,
+              fontWeight: FontWeight.w400,
+            ),
+            items: const [
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.inventory, size: 30), label: 'Stocks'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.shopping_cart, size: 30), label: 'Cart'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.history, size: 30), label: 'Activity'),
+              BottomNavigationBarItem(
+                  icon: Icon(Icons.calendar_today, size: 30), label: 'Events'),
+            ],
           ),
-          const ActivityPage(),
-          const EventsPage(),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed,
-        selectedLabelStyle: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
         ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 13,
-          fontWeight: FontWeight.w400,
-        ),
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.inventory, size: 30), label: 'Stocks'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.shopping_cart, size: 30), label: 'Cart'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.history, size: 30), label: 'Activity'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today, size: 30), label: 'Events'),
-        ],
-      ),
+        if (_showOverdueBanner)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + kToolbarHeight - 8,
+            left: 16,
+            right: 16,
+            child: AnimatedOpacity(
+              opacity: _showOverdueBanner ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 400),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _showOverdueBanner = false);
+                  _bannerTimer?.cancel();
+                  _showNotificationDialog();
+                },
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(18),
+                  color: Colors.transparent,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[50],
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.orange, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.orange.withOpacity(0.15),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.notifications_active, color: Colors.orange[800]),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Overdue shopping events!',
+                            style: TextStyle(
+                              color: Colors.orange[900],
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.orange, size: 20),
+                          onPressed: () {
+                            setState(() => _showOverdueBanner = false);
+                            _bannerTimer?.cancel();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1703,17 +1825,20 @@ class _HomePageState extends State<HomePage> {
       if (existingIndex != -1) {
         // Merge with existing event
         final existingEvent = events[existingIndex];
-        final existingPurchase = existingEvent['purchase'] as Map<String, dynamic>;
+        final existingPurchase =
+            existingEvent['purchase'] as Map<String, dynamic>;
 
         // Merge items
-        final Map<String, int> existingItems = Map<String, int>.from(existingPurchase['items']);
+        final Map<String, int> existingItems =
+            Map<String, int>.from(existingPurchase['items']);
         final Map<String, int> newItems = purchase.items;
         newItems.forEach((key, value) {
           existingItems[key] = (existingItems[key] ?? 0) + value;
         });
 
         // Update amount
-        final double newAmount = (existingPurchase['amount'] as num).toDouble() + purchase.amount;
+        final double newAmount =
+            (existingPurchase['amount'] as num).toDouble() + purchase.amount;
 
         // Update purchase details
         existingEvent['purchase'] = {
@@ -4073,14 +4198,17 @@ class _EventsPageState extends State<EventsPage>
                         ],
                       ),
                     ),
-                    if (!(event['completed'] ?? false) && !date.isAfter(DateTime.now())) ...[
+                    if (!(event['completed'] ?? false) &&
+                        !date.isAfter(DateTime.now())) ...[
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.check_circle_outline),
                           label: const Text('Confirm Shopping Done'),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                          onPressed: () => _confirmShoppingDone(event, index, events),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green),
+                          onPressed: () =>
+                              _confirmShoppingDone(event, index, events),
                         ),
                       ),
                     ],
@@ -4118,7 +4246,8 @@ class _EventsPageState extends State<EventsPage>
     );
   }
 
-  Future<void> _confirmShoppingDone(Map<String, dynamic> event, int index, List<Map<String, dynamic>> events) async {
+  Future<void> _confirmShoppingDone(Map<String, dynamic> event, int index,
+      List<Map<String, dynamic>> events) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -4136,7 +4265,8 @@ class _EventsPageState extends State<EventsPage>
       // Update stock quantities
       items.forEach((itemName, qtyToAdd) {
         for (var section in stockData.keys) {
-          final sectionItems = List<Map<String, dynamic>>.from(stockData[section]);
+          final sectionItems =
+              List<Map<String, dynamic>>.from(stockData[section]);
           for (var item in sectionItems) {
             if (item['name'] == itemName) {
               item['quantity'] += qtyToAdd;
@@ -4156,14 +4286,18 @@ class _EventsPageState extends State<EventsPage>
       await eventsRef.set({'events': events});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Stock updated and event removed!'), backgroundColor: Colors.green),
+          const SnackBar(
+              content: Text('Stock updated and event removed!'),
+              backgroundColor: Colors.green),
         );
         setState(() {});
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error confirming shopping: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Error confirming shopping: $e'),
+              backgroundColor: Colors.red),
         );
       }
     }
@@ -4474,7 +4608,8 @@ class NotificationPage extends StatelessWidget {
     }
   }
 
-  Stream<Map<String, List<Map<String, dynamic>>>> _fetchCategorizedEvents() async* {
+  Stream<Map<String, List<Map<String, dynamic>>>>
+      _fetchCategorizedEvents() async* {
     final user = _auth.currentUser;
     if (user == null) {
       yield {};
@@ -4523,7 +4658,8 @@ class NotificationPage extends StatelessWidget {
     });
   }
 
-  Future<void> _removeMissedEvent(BuildContext context, Map<String, dynamic> event) async {
+  Future<void> _removeMissedEvent(
+      BuildContext context, Map<String, dynamic> event) async {
     try {
       final user = _auth.currentUser;
       if (user == null) return;
@@ -4535,20 +4671,28 @@ class NotificationPage extends StatelessWidget {
       final eventsDoc = await eventsRef.get();
       List<Map<String, dynamic>> events = [];
       if (eventsDoc.exists) {
-        events = List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
+        events =
+            List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
       }
       // Remove the event by matching date and items
-      events.removeWhere((e) => e['date'] == event['date'] && e['purchase']['items'].toString() == event['purchase']['items'].toString());
+      events.removeWhere((e) =>
+          e['date'] == event['date'] &&
+          e['purchase']['items'].toString() ==
+              event['purchase']['items'].toString());
       await eventsRef.set({'events': events});
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Missed event removed!'), backgroundColor: Colors.red),
+          const SnackBar(
+              content: Text('Missed event removed!'),
+              backgroundColor: Colors.red),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error removing event: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Error removing event: $e'),
+              backgroundColor: Colors.red),
         );
       }
     }
@@ -4584,7 +4728,8 @@ class NotificationPage extends StatelessWidget {
 
               return [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 12.0, horizontal: 16.0),
                   child: Text(
                     entry.key,
                     style: const TextStyle(
@@ -4599,12 +4744,16 @@ class NotificationPage extends StatelessWidget {
                   final date = _parseDate(shoppingEvent['date']);
                   final formatted = DateFormat('MMMM dd, yyyy').format(date);
                   final amount = shoppingEvent['purchase']?['amount'] ?? 'N/A';
-                  final items = shoppingEvent['purchase']?['items'] as Map<String, dynamic>? ?? {};
+                  final items = shoppingEvent['purchase']?['items']
+                          as Map<String, dynamic>? ??
+                      {};
 
                   return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     elevation: 3,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
@@ -4612,7 +4761,8 @@ class NotificationPage extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.shopping_bag, color: Colors.green[700]),
+                              Icon(Icons.shopping_bag,
+                                  color: Colors.green[700]),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -4642,15 +4792,20 @@ class NotificationPage extends StatelessWidget {
                             style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                           ...items.entries.map((entry) => Padding(
-                            padding: const EdgeInsets.only(left: 8.0, top: 2, bottom: 2),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(entry.key, style: const TextStyle(fontSize: 15)),
-                                Text('${entry.value}x', style: const TextStyle(color: Colors.blueGrey)),
-                              ],
-                            ),
-                          )),
+                                padding: const EdgeInsets.only(
+                                    left: 8.0, top: 2, bottom: 2),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(entry.key,
+                                        style: const TextStyle(fontSize: 15)),
+                                    Text('${entry.value}x',
+                                        style: const TextStyle(
+                                            color: Colors.blueGrey)),
+                                  ],
+                                ),
+                              )),
                           if (date.isBefore(DateTime.now()))
                             Padding(
                               padding: const EdgeInsets.only(top: 12.0),
@@ -4665,7 +4820,8 @@ class NotificationPage extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                 ),
-                                onPressed: () => _removeMissedEvent(context, shoppingEvent),
+                                onPressed: () =>
+                                    _removeMissedEvent(context, shoppingEvent),
                               ),
                             ),
                         ],
@@ -5014,4 +5170,59 @@ class PrivacyPolicyPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SpeechBubbleUpPainter extends CustomPainter {
+  final Color color;
+  final Color borderColor;
+  _SpeechBubbleUpPainter({required this.color, required this.borderColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const r = 18.0; // corner radius
+    const tailWidth = 28.0;
+    const tailHeight = 16.0;
+    const tailRightPad = 18.0; // distance from right edge
+
+    final path = Path()
+      // Start at top left, after tail
+      ..moveTo(r, tailHeight)
+      // Top left corner
+      ..arcToPoint(const Offset(0, tailHeight + r),
+          radius: const Radius.circular(r))
+      // Left side
+      ..lineTo(0, size.height - r)
+      // Bottom left corner
+      ..arcToPoint(Offset(r, size.height), radius: const Radius.circular(r))
+      // Bottom side
+      ..lineTo(size.width - r, size.height)
+      // Bottom right corner
+      ..arcToPoint(Offset(size.width, size.height - r),
+          radius: const Radius.circular(r))
+      // Right side
+      ..lineTo(size.width, tailHeight + r)
+      // Top right corner
+      ..arcToPoint(Offset(size.width - r, tailHeight),
+          radius: const Radius.circular(r))
+      // Top side before tail
+      ..lineTo(size.width - tailRightPad - tailWidth, tailHeight)
+      // Tail curve up
+      ..quadraticBezierTo(size.width - tailRightPad - tailWidth / 2, 0,
+          size.width - tailRightPad, tailHeight)
+      // Back to start
+      ..lineTo(r, tailHeight);
+
+    final paint = Paint()..color = color;
+    final borderPaint = Paint()
+      ..color = borderColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+
+    canvas.drawShadow(path, borderColor.withOpacity(0.3), 6, false);
+    canvas.drawPath(path, paint);
+    canvas.drawPath(path, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
