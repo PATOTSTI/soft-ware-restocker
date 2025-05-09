@@ -1693,16 +1693,50 @@ class _HomePageState extends State<HomePage> {
             List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
       }
 
-      // Add new event
-      final newEvent = {
-        'date': date.toIso8601String(),
-        'purchase': {
-          'date': purchase.date.toIso8601String(),
-          'amount': purchase.amount,
-          'items': purchase.items,
-        },
-      };
-      events.add(newEvent);
+      // Try to find an event with the same date (ignoring time)
+      final String newEventDate = DateFormat('yyyy-MM-dd').format(date);
+      final existingIndex = events.indexWhere((event) {
+        final eventDate = DateTime.parse(event['date']);
+        return DateFormat('yyyy-MM-dd').format(eventDate) == newEventDate;
+      });
+
+      if (existingIndex != -1) {
+        // Merge with existing event
+        final existingEvent = events[existingIndex];
+        final existingPurchase = existingEvent['purchase'] as Map<String, dynamic>;
+
+        // Merge items
+        final Map<String, int> existingItems = Map<String, int>.from(existingPurchase['items']);
+        final Map<String, int> newItems = purchase.items;
+        newItems.forEach((key, value) {
+          existingItems[key] = (existingItems[key] ?? 0) + value;
+        });
+
+        // Update amount
+        final double newAmount = (existingPurchase['amount'] as num).toDouble() + purchase.amount;
+
+        // Update purchase details
+        existingEvent['purchase'] = {
+          'date': existingPurchase['date'], // Keep the original creation date
+          'amount': newAmount,
+          'items': existingItems,
+        };
+
+        existingEvent['completed'] = existingEvent['completed'] ?? false;
+        events[existingIndex] = existingEvent;
+      } else {
+        // Add new event
+        final newEvent = {
+          'date': date.toIso8601String(),
+          'purchase': {
+            'date': purchase.date.toIso8601String(),
+            'amount': purchase.amount,
+            'items': purchase.items,
+          },
+          'completed': false, // <-- Add this
+        };
+        events.add(newEvent);
+      }
 
       // Save updated events
       await eventsRef.set({'events': events});
@@ -4039,6 +4073,17 @@ class _EventsPageState extends State<EventsPage>
                         ],
                       ),
                     ),
+                    if (!(event['completed'] ?? false) && !date.isAfter(DateTime.now())) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Confirm Shopping Done'),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                          onPressed: () => _confirmShoppingDone(event, index, events),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -4071,6 +4116,57 @@ class _EventsPageState extends State<EventsPage>
         }
       },
     );
+  }
+
+  Future<void> _confirmShoppingDone(Map<String, dynamic> event, int index, List<Map<String, dynamic>> events) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final items = Map<String, int>.from(event['purchase']['items']);
+      final stockRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('stocks')
+          .doc('stock_data');
+      final stockDoc = await stockRef.get();
+      Map<String, dynamic> stockData = {};
+      if (stockDoc.exists) {
+        stockData = stockDoc.data() as Map<String, dynamic>;
+      }
+      // Update stock quantities
+      items.forEach((itemName, qtyToAdd) {
+        for (var section in stockData.keys) {
+          final sectionItems = List<Map<String, dynamic>>.from(stockData[section]);
+          for (var item in sectionItems) {
+            if (item['name'] == itemName) {
+              item['quantity'] += qtyToAdd;
+            }
+          }
+          stockData[section] = sectionItems;
+        }
+      });
+      await stockRef.set(stockData);
+      // Remove event from the list
+      events.removeAt(index);
+      final eventsRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('events')
+          .doc('shopping_events');
+      await eventsRef.set({'events': events});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Stock updated and event removed!'), backgroundColor: Colors.green),
+        );
+        setState(() {});
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error confirming shopping: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 }
 
@@ -4427,6 +4523,37 @@ class NotificationPage extends StatelessWidget {
     });
   }
 
+  Future<void> _removeMissedEvent(BuildContext context, Map<String, dynamic> event) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return;
+      final eventsRef = _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('events')
+          .doc('shopping_events');
+      final eventsDoc = await eventsRef.get();
+      List<Map<String, dynamic>> events = [];
+      if (eventsDoc.exists) {
+        events = List<Map<String, dynamic>>.from(eventsDoc.data()?['events'] ?? []);
+      }
+      // Remove the event by matching date and items
+      events.removeWhere((e) => e['date'] == event['date'] && e['purchase']['items'].toString() == event['purchase']['items'].toString());
+      await eventsRef.set({'events': events});
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Missed event removed!'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error removing event: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -4457,21 +4584,93 @@ class NotificationPage extends StatelessWidget {
 
               return [
                 Padding(
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
                   child: Text(
                     entry.key,
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                      letterSpacing: 1.2,
+                    ),
                   ),
                 ),
                 ...entry.value.map((shoppingEvent) {
                   final date = _parseDate(shoppingEvent['date']);
                   final formatted = DateFormat('MMMM dd, yyyy').format(date);
                   final amount = shoppingEvent['purchase']?['amount'] ?? 'N/A';
+                  final items = shoppingEvent['purchase']?['items'] as Map<String, dynamic>? ?? {};
 
-                  return ListTile(
-                    title: Text("Purchase: Php${amount.toString()}"),
-                    subtitle: Text("Date: $formatted"),
-                    isThreeLine: true,
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.shopping_bag, color: Colors.green[700]),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  formatted,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 18,
+                                    color: date.isBefore(DateTime.now())
+                                        ? Colors.red
+                                        : Colors.green[900],
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                "Php $amount",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.orange,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            "Items:",
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          ...items.entries.map((entry) => Padding(
+                            padding: const EdgeInsets.only(left: 8.0, top: 2, bottom: 2),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(entry.key, style: const TextStyle(fontSize: 15)),
+                                Text('${entry.value}x', style: const TextStyle(color: Colors.blueGrey)),
+                              ],
+                            ),
+                          )),
+                          if (date.isBefore(DateTime.now()))
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12.0),
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.cancel),
+                                label: const Text('Missed/Remove'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                  minimumSize: const Size.fromHeight(40),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: () => _removeMissedEvent(context, shoppingEvent),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
                   );
                 }).toList(),
               ];
