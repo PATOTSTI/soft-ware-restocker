@@ -90,21 +90,10 @@ class AuthService {
         scopes: ['email', 'profile'],
       );
 
-      // Check if user is already signed in
-      final GoogleSignInAccount? currentUser =
-          await googleSignIn.signInSilently();
-      if (currentUser != null) {
-        final GoogleSignInAuthentication googleAuth =
-            await currentUser.authentication;
-        final credential = GoogleAuthProvider.credential(
-          accessToken: googleAuth.accessToken,
-          idToken: googleAuth.idToken,
-        );
-        await _auth.signInWithCredential(credential);
-        return true;
-      }
+      // Force sign out first to clear any existing session
+      await googleSignIn.signOut();
 
-      // If not signed in, start the sign-in flow
+      // Start the sign-in flow
       final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       if (googleUser == null) {
         throw Exception('Google sign-in cancelled');
@@ -119,8 +108,6 @@ class AuthService {
 
       await _auth.signInWithCredential(credential);
       return true;
-    } on FirebaseAuthException catch (e) {
-      throw Exception('Firebase authentication failed: ${e.message}');
     } catch (e) {
       throw Exception('Failed to sign in with Google: $e');
     }
@@ -2257,11 +2244,12 @@ class _StocksPageState extends State<StocksPage> {
               });
               // Update Firestore with the original quantity
               _updateFirestore(section, item, currentQuantity);
-              
+
               // Show confirmation snackbar
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Restored ${item['name']} quantity to $currentQuantity'),
+                  content: Text(
+                      'Restored ${item['name']} quantity to $currentQuantity'),
                   backgroundColor: Colors.green,
                   behavior: SnackBarBehavior.floating,
                   margin: const EdgeInsets.all(8),
@@ -2279,7 +2267,8 @@ class _StocksPageState extends State<StocksPage> {
   }
 
   // Helper method to update Firestore with debounce
-  Future<void> _updateFirestore(String section, Map<String, dynamic> item, int quantity) async {
+  Future<void> _updateFirestore(
+      String section, Map<String, dynamic> item, int quantity) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -2293,18 +2282,25 @@ class _StocksPageState extends State<StocksPage> {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final snapshot = await transaction.get(stockDocRef);
         if (!snapshot.exists) {
-          transaction.set(stockDocRef, {section: [item]}, SetOptions(merge: true));
+          transaction.set(
+              stockDocRef,
+              {
+                section: [item]
+              },
+              SetOptions(merge: true));
           return;
         }
 
         final data = snapshot.data() as Map<String, dynamic>;
-        final sectionItems = List<Map<String, dynamic>>.from(data[section] ?? []);
-        final itemIndex = sectionItems.indexWhere((i) => i['name'] == item['name']);
-        
+        final sectionItems =
+            List<Map<String, dynamic>>.from(data[section] ?? []);
+        final itemIndex =
+            sectionItems.indexWhere((i) => i['name'] == item['name']);
+
         if (itemIndex != -1) {
           sectionItems[itemIndex]['quantity'] = quantity;
         }
-        
+
         data[section] = sectionItems;
         transaction.set(stockDocRef, data);
       });
